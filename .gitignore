@@ -1,0 +1,114 @@
+# .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyTorch
+*.pth
+*.pt
+*.pkl
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Data directories (large files)
+data/
+embeddings/
+*.npy
+*.jsonl
+*.tsv
+*.txt
+*.gz
+*.tar
+*.tar.gz
+*.zip
+
+# Model directories
+saved_models/
+checkpoints/
+logs/
+
+# MS MARCO evaluation script
+ms_marco_eval/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Specific to this project
+# Uncomment if you want to track certain files
+# !data/README.md
+# !embeddings/README.md
+# !saved_models/README.md
+
+# Results and logs
+*.log
+*.out
+*.err
+run.*.txt
+results.json
+eval_results.txt
+training.log
+
+# Cache
+.cache/
+
+# Large files
+*.bin
+*.h5
+*.hdf5
+*.npz

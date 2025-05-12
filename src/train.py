@@ -1,0 +1,280 @@
+# main_train.py
+import torch
+import torch.optim as optim
+import torch.nn as nn
+from torch.utils.data import DataLoader
+import os
+import numpy as np
+import json
+from tqdm import tqdm
+import time
+import logging
+
+import config
+from models import get_model
+from data_loader import load_embeddings_and_mappings, load_dev_data_for_eval, create_msmarco_train_dataloader
+from evaluate import evaluate_model_on_dev, quick_eval_sample
+
+
+def setup_logging(model_save_dir):
+    """Setup logging for training"""
+    os.makedirs(model_save_dir, exist_ok=True)
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(os.path.join(model_save_dir, 'training.log')),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger()
+
+
+def train_model(model_name_key):
+    print(f"Starting training for model: {model_name_key}")
+    model_config_params = config.MODEL_CONFIGS[model_name_key]
+
+    # Create save directory for this model
+    current_model_save_dir = os.path.join(config.MODEL_SAVE_DIR, model_name_key)
+    os.makedirs(current_model_save_dir, exist_ok=True)
+
+    # Setup logging
+    logger = setup_logging(current_model_save_dir)
+    logger.info(f"Starting training for model: {model_name_key}")
+    logger.info(f"Model config: {model_config_params}")
+    logger.info(f"Device: {config.DEVICE}")
+
+    # Load data
+    logger.info("Loading embeddings and mappings...")
+    query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
+
+    # Create train dataloader
+    # Set limit_size for quick testing, None for full training
+    train_dataset_limit = None  # Set to a small number like 10000 for quick tests
+    logger.info(f"Creating training dataloader (limit_size={train_dataset_limit})...")
+
+    train_dataloader, _, _, _, _ = create_msmarco_train_dataloader(limit_size=train_dataset_limit)
+
+    # Load dev data for evaluation (load once)
+    logger.info("Loading dev data for evaluation...")
+    dev_query_to_candidates = load_dev_data_for_eval(
+        config.DEV_QUERIES_PATH,
+        config.DEV_CANDIDATES_PATH,
+        qid_to_idx,
+        pid_to_idx
+    )
+
+    # Initialize model
+    model = get_model(model_name_key, model_config_params).to(config.DEVICE)
+    logger.info(f"Model architecture:\n{model}")
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"Total parameters: {total_params:,}")
+    logger.info(f"Trainable parameters: {trainable_params:,}")
+
+    # Handle dot product model (no training needed)
+    if model_config_params["type"] == "dot_product":
+        logger.info("Dot product model requires no training. Evaluating directly.")
+        run_file_path = os.path.join(current_model_save_dir, f"run.dev.{model_name_key}.txt")
+        mrr_at_10 = evaluate_model_on_dev(
+            model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
+            dev_query_to_candidates, run_file_path=run_file_path
+        )
+        logger.info(f"Dot Product Dev MRR@10: {mrr_at_10:.4f}")
+
+        # Save results
+        with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
+            f_out.write(f"Model: {model_name_key}\n")
+            f_out.write(f"Dev MRR@10: {mrr_at_10:.4f}\n")
+        return mrr_at_10
+
+    # Setup optimizer and loss function for trainable models
+    optimizer = optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY)
+    loss_fn = nn.MarginRankingLoss(margin=config.MARGIN).to(config.DEVICE)
+    logger.info(f"Optimizer: AdamW (lr={config.LEARNING_RATE}, weight_decay={config.WEIGHT_DECAY})")
+    logger.info(f"Loss function: MarginRankingLoss (margin={config.MARGIN})")
+
+    best_dev_mrr = 0.0
+    best_epoch = 0
+    training_start_time = time.time()
+
+    # Training loop
+    for epoch in range(config.NUM_EPOCHS):
+        epoch_start_time = time.time()
+        model.train()
+        total_loss = 0
+        num_batches = 0
+
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{config.NUM_EPOCHS}")
+
+        for i, (q_embeds, pos_p_embeds, neg_p_embeds) in enumerate(progress_bar):
+            # Move data to device
+            q_embeds = q_embeds.to(config.DEVICE, non_blocking=True)
+            pos_p_embeds = pos_p_embeds.to(config.DEVICE, non_blocking=True)
+            neg_p_embeds = neg_p_embeds.to(config.DEVICE, non_blocking=True)
+
+            optimizer.zero_grad()
+
+            # Forward pass
+            scores_pos = model(q_embeds, pos_p_embeds)
+            scores_neg = model(q_embeds, neg_p_embeds)
+
+            # Compute loss
+            targets = torch.ones_like(scores_pos).to(config.DEVICE)
+            loss = loss_fn(scores_pos, scores_neg, targets)
+
+            # Backward pass
+            loss.backward()
+
+            # Gradient clipping (optional but often helpful)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+            optimizer.step()
+
+            total_loss += loss.item()
+            num_batches += 1
+
+            # Log progress
+            if (i + 1) % config.LOG_INTERVAL == 0:
+                avg_loss = total_loss / num_batches
+                progress_bar.set_postfix({'loss': avg_loss})
+                logger.info(f"Epoch {epoch + 1}, Batch {i + 1}: Average loss = {avg_loss:.4f}")
+
+        epoch_time = time.time() - epoch_start_time
+        avg_epoch_loss = total_loss / num_batches
+        logger.info(f"Epoch {epoch + 1} completed in {epoch_time:.2f}s")
+        logger.info(f"Epoch {epoch + 1} Average Loss: {avg_epoch_loss:.4f}")
+
+        # Evaluate on dev set
+        logger.info(f"Evaluating on dev set after epoch {epoch + 1}...")
+        run_file_path = os.path.join(current_model_save_dir, f"run.dev.epoch_{epoch + 1}.txt")
+        current_dev_mrr = evaluate_model_on_dev(
+            model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
+            dev_query_to_candidates, run_file_path=run_file_path
+        )
+        logger.info(f"Epoch {epoch + 1} Dev MRR@10: {current_dev_mrr:.4f}")
+
+        # Save best model
+        if current_dev_mrr > best_dev_mrr:
+            best_dev_mrr = current_dev_mrr
+            best_epoch = epoch + 1
+            logger.info(f"New best dev MRR@10: {best_dev_mrr:.4f}. Saving model...")
+
+            # Save model state dict
+            torch.save(model.state_dict(), os.path.join(current_model_save_dir, f"best_model.pth"))
+
+            # Save model config and metrics
+            save_dict = {
+                'model_state_dict': model.state_dict(),
+                'epoch': epoch + 1,
+                'mrr_10': current_dev_mrr,
+                'loss': avg_epoch_loss,
+                'model_config': model_config_params,
+                'optimizer_state_dict': optimizer.state_dict()
+            }
+            torch.save(save_dict, os.path.join(current_model_save_dir, "best_checkpoint.pth"))
+
+        # Save current epoch model
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'epoch': epoch + 1,
+            'mrr_10': current_dev_mrr,
+            'loss': avg_epoch_loss,
+            'model_config': model_config_params,
+            'optimizer_state_dict': optimizer.state_dict()
+        }, os.path.join(current_model_save_dir, f"model_epoch_{epoch + 1}.pth"))
+
+    training_time = time.time() - training_start_time
+    logger.info(f"Training complete for {model_name_key}")
+    logger.info(f"Total training time: {training_time:.2f}s")
+    logger.info(f"Best Dev MRR@10: {best_dev_mrr:.4f} (achieved at epoch {best_epoch})")
+
+    # Save final results
+    final_results = {
+        'model_name': model_name_key,
+        'best_dev_mrr': best_dev_mrr,
+        'best_epoch': best_epoch,
+        'final_loss': avg_epoch_loss,
+        'training_time': training_time,
+        'total_epochs': config.NUM_EPOCHS
+    }
+
+    with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
+        f_out.write(f"Model: {model_name_key}\n")
+        f_out.write(f"Best Dev MRR@10: {best_dev_mrr:.4f}\n")
+        f_out.write(f"Best Epoch: {best_epoch}\n")
+        f_out.write(f"Final Epoch Average Loss: {avg_epoch_loss:.4f}\n")
+        f_out.write(f"Total Training Time: {training_time:.2f}s\n")
+
+    # Save results as JSON for easy parsing
+    with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
+        json.dump(final_results, f_out, indent=2)
+
+    return best_dev_mrr
+
+
+def main():
+    """Main function to run training for all configured models"""
+    # Ensure model save directory exists
+    os.makedirs(config.MODEL_SAVE_DIR, exist_ok=True)
+
+    # Log system information
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"CUDA device: {torch.cuda.get_device_name()}")
+    print(f"Device: {config.DEVICE}")
+
+    # Models to run - you can customize this list
+    # For quick testing, start with a subset:
+    # models_to_run = ["dot_product", "weighted_dot_product"]
+
+    # To run all defined models:
+    models_to_run = list(config.MODEL_CONFIGS.keys())
+
+    # Store results for comparison
+    all_results = {}
+
+    print(f"Will train the following models: {models_to_run}")
+
+    for model_key in models_to_run:
+        if model_key in config.MODEL_CONFIGS:
+            print(f"\n{'=' * 50}")
+            print(f"Training {model_key}")
+            print(f"{'=' * 50}")
+
+            try:
+                best_mrr = train_model(model_key)
+                all_results[model_key] = best_mrr
+
+                print(f"Completed training {model_key}: MRR@10 = {best_mrr:.4f}")
+
+            except Exception as e:
+                print(f"Error training {model_key}: {e}")
+                import traceback
+                traceback.print_exc()
+                all_results[model_key] = 0.0
+        else:
+            print(f"Warning: Model key '{model_key}' not found in MODEL_CONFIGS. Skipping.")
+
+    # Print final summary
+    print(f"\n{'=' * 50}")
+    print("FINAL RESULTS SUMMARY")
+    print(f"{'=' * 50}")
+    print(f"{'Model':<25} {'MRR@10':<15}")
+    print(f"{'-' * 40}")
+    for model_name, mrr in sorted(all_results.items(), key=lambda x: x[1], reverse=True):
+        print(f"{model_name:<25} {mrr:<15.4f}")
+
+    # Save overall summary
+    summary_path = os.path.join(config.MODEL_SAVE_DIR, "summary_results.json")
+    with open(summary_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+
+    print(f"\nAll results saved to {summary_path}")
+
+
+if __name__ == "__main__":
+    main()
