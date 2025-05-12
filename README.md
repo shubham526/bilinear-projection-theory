@@ -1,11 +1,23 @@
-# MS MARCO Passage Ranking with Fixed Embeddings
+# Empirical Validation of Theoretical Advantages of Bilinear Similarities in Dense Retrieval
 
-This project implements various ranking models (dot product, weighted dot product, low-rank bilinear, full-rank bilinear) on top of fixed SBERT embeddings for MS MARCO passage ranking.
+This repository contains the code and experimental setup for the paper titled "On the Theoretical Advantages of Bilinear Similarities in Dense Information Retrieval." The paper presents a comprehensive theoretical analysis establishing that bilinear similarity functions ($s(q,d) = q^T W d$) offer fundamental expressiveness advantages over standard dot-product and weighted dot-product similarities when query and document embeddings are **fixed**.
+
+Our theoretical contributions are threefold:
+1.  **Enhanced Expressiveness (Theorem 2.1):** We prove that bilinear similarities can capture strictly more ranking patterns than dot-product similarities under fixed embeddings.
+2.  **Separation via Structured Task (Theorem 3.1):** We introduce the "Structured Agreement Ranking Task" where simple rank-2 bilinear models achieve perfect performance, while all weighted dot-product models are proven to fail universally. This highlights scenarios where modeling feature interactions is essential.
+3.  **Low-Rank Approximation Bounds (Theorem 4.1):** We derive tight pointwise error bounds for low-rank approximations of bilinear matrices ($W_r$), showing that approximation quality is controlled by neglected singular values, providing a principled way to trade efficiency for accuracy.
+
+This codebase provides the tools to empirically validate these theoretical findings. The experiments focus on:
+* **Directly testing the theoretical predictions** using synthetic data, particularly for the Structured Agreement Ranking Task.
+* **Evaluating the practical performance** of dot-product, weighted dot-product, and various bilinear similarity models (full-rank and low-rank) on a standard large-scale information retrieval benchmark (MS MARCO V1 Passage Ranking) using **fixed, pre-computed text embeddings**.
+* **Analyzing the behavior of low-rank bilinear approximations** in relation to their theoretical error bounds and practical retrieval effectiveness.
+
+The core idea is to learn the parameters of the similarity function ($W$ for bilinear, $v$ for weighted dot-product) on top of static embeddings, isolating the representational power of the similarity function itself.
 
 ## Project Structure
 
 ```
-experiment2/
+bilinear-proj-theory/
 ├── main_train.py          # Main training script
 ├── models.py              # Model definitions (WDP, LRB, FRB, DotProduct)
 ├── data_loader.py         # Dataset and data loading utilities
