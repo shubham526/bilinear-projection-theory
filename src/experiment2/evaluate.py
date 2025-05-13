@@ -1,11 +1,31 @@
 # evaluate.py
-import subprocess
-import os
+import pytrec_eval
 import torch
 from tqdm import tqdm
 import numpy as np
 import config
-import re
+import os
+
+
+def load_qrels(qrels_path):
+    """
+    Load qrels file in TREC format for pytrec_eval
+    Returns: Dictionary in format {qid: {pid: relevance_score}}
+    """
+    qrels = {}
+    print(f"Loading qrels from: {qrels_path}")
+
+    with open(qrels_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) >= 4:
+                qid, _, pid, relevance = parts[:4]
+                if qid not in qrels:
+                    qrels[qid] = {}
+                qrels[qid][pid] = int(relevance)
+
+    print(f"Loaded qrels for {len(qrels)} queries")
+    return qrels
 
 
 def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
@@ -13,12 +33,14 @@ def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
                           run_file_path="run.dev.txt"):
     """
     Evaluate model on dev set by scoring candidates and creating a TREC run file.
-    Then calls the official MS MARCO evaluation script.
+    Then evaluates using pytrec_eval.
     """
     model.eval()
 
     # Ensure run_file_path directory exists
     os.makedirs(os.path.dirname(run_file_path), exist_ok=True)
+
+    run = {}  # Will store run results for pytrec_eval
 
     with open(run_file_path, 'w') as f_run:
         with torch.no_grad():
@@ -59,89 +81,93 @@ def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
                 # Sort candidates by score (descending)
                 sorted_indices = torch.argsort(scores, descending=True)
 
+                # Prepare for pytrec_eval
+                run[qid] = {}
+
                 for rank_idx, original_candidate_idx in enumerate(sorted_indices):
                     passage_id = valid_candidate_pids[original_candidate_idx.item()]
                     score = scores[original_candidate_idx.item()].item()
+
+                    # Store in run dictionary for pytrec_eval
+                    run[qid][passage_id] = score
+
                     # Write in TREC run format: qid Q0 pid rank score run_name
-                    f_run.write(f"{qid}\tQ0\t{passage_id}\t{rank_idx + 1}\t{score:.6f}\tCustomModel\n")
+                    f_run.write(f"{qid}\tQ0\t{passage_id}\t{rank_idx + 1}\t{score:.6f}\tBilinearModel\n")
 
-    # After writing the run file, call the official MS MARCO evaluation script
-    return evaluate_run_file(config.DEV_QRELS_PATH, run_file_path)
+    # Evaluate with pytrec_eval
+    return evaluate_with_pytrec_eval(config.DEV_QRELS_PATH, run)
 
 
-def evaluate_run_file(qrels_path, run_file_path):
+def evaluate_with_pytrec_eval(qrels_path, run_dict):
     """
-    Calls the official MS MARCO evaluation script and returns MRR@10.
+    Evaluate using pytrec_eval
+    Returns: (mrr_10, all_metrics_dict)
     """
-    try:
-        print(f"Running MS MARCO evaluation script on {run_file_path}...")
+    print(f"Evaluating with pytrec_eval using qrels: {qrels_path}")
 
-        # Check if the evaluation script exists
-        if not os.path.exists(config.MSMARCO_EVAL_SCRIPT):
-            print(f"Warning: MS MARCO evaluation script not found at {config.MSMARCO_EVAL_SCRIPT}")
-            print("Please download the official script from MS MARCO GitHub repository.")
-            return 0.0
+    # Load qrels
+    qrels = load_qrels(qrels_path)
 
-        result = subprocess.run(
-            ['python', config.MSMARCO_EVAL_SCRIPT, qrels_path, run_file_path],
-            capture_output=True, text=True, check=True
-        )
+    # Create evaluator with metrics
+    evaluator = pytrec_eval.RelevanceEvaluator(
+        qrels,
+        {
+            'mrr_cut.10', 'mrr_cut.100', 'mrr_cut.1000',
+            'recip_rank',
+            'recall.100', 'recall.1000',
+            'ndcg_cut.10', 'ndcg_cut.100',
+            'map_cut.10', 'map_cut.100'
+        }
+    )
 
-        print("Evaluation Output:")
-        print(result.stdout)
+    # Run evaluation
+    results = evaluator.evaluate(run_dict)
 
-        # Parse MRR@10 from result.stdout (specific to MS MARCO script output format)
-        mrr_10 = 0.0
+    # Calculate average metrics across all queries
+    aggregated = {}
 
-        # Try multiple parsing patterns as different versions of the script might format differently
-        patterns = [
-            r"MRR @10:\s*([0-9\.]+)",
-            r"MRR@10:\s*([0-9\.]+)",
-            r"MRR\s*@\s*10\s*:\s*([0-9\.]+)",
-            r"#####################\nMRR @10: ([0-9\.]+)"
-        ]
+    if results:
+        # Get all metrics from first query to know what's available
+        first_qid = next(iter(results))
+        for metric in results[first_qid]:
+            values = [results[qid][metric] for qid in results if qid in results]
+            aggregated[metric] = np.mean(values) if values else 0.0
 
-        for pattern in patterns:
-            match = re.search(pattern, result.stdout)
-            if match:
-                mrr_10 = float(match.group(1))
-                break
+    # Print formatted results
+    print("\nEvaluation Results:")
+    print("=" * 40)
+    print(f"{'Metric':<15} {'Value':<10}")
+    print("-" * 40)
+    print(f"{'MRR@10':<15} {aggregated.get('mrr_cut.10', 0):.4f}")
+    print(f"{'MRR@100':<15} {aggregated.get('mrr_cut.100', 0):.4f}")
+    print(f"{'MRR@1000':<15} {aggregated.get('mrr_cut.1000', 0):.4f}")
+    print(f"{'nDCG@10':<15} {aggregated.get('ndcg_cut.10', 0):.4f}")
+    print(f"{'nDCG@100':<15} {aggregated.get('ndcg_cut.100', 0):.4f}")
+    print(f"{'Recall@100':<15} {aggregated.get('recall.100', 0):.4f}")
+    print(f"{'Recall@1000':<15} {aggregated.get('recall.1000', 0):.4f}")
+    print(f"{'MAP@10':<15} {aggregated.get('map_cut.10', 0):.4f}")
+    print("=" * 40)
 
-        if mrr_10 == 0.0:
-            print("Warning: Could not parse MRR@10 from evaluation output.")
-            print("Please check the output format of your evaluation script.")
-        else:
-            print(f"Parsed MRR@10: {mrr_10:.4f}")
-
-        return mrr_10
-
-    except subprocess.CalledProcessError as e:
-        print("Error during evaluation:")
-        print(e.stderr)
-        print("stdout:", e.stdout)
-        return 0.0
-    except FileNotFoundError:
-        print(f"Error: Python interpreter or evaluation script not found.")
-        print(f"Make sure {config.MSMARCO_EVAL_SCRIPT} exists and is executable.")
-        return 0.0
-    except Exception as e:
-        print(f"Unexpected error during evaluation: {e}")
-        return 0.0
+    # Return MRR@10 as primary metric and all metrics
+    return aggregated.get('mrr_cut.10', 0), aggregated
 
 
 def quick_eval_sample(model, query_embeddings, passage_embeddings,
                       qid_to_idx, pid_to_idx, dev_query_to_candidates, sample_size=100):
     """
     Quick evaluation on a sample of dev queries for faster feedback during training.
+    Uses pytrec_eval for consistency with main evaluation.
     """
     model.eval()
+
+    print(f"Running quick evaluation on {sample_size} queries...")
 
     # Sample a subset of queries
     all_qids = list(dev_query_to_candidates.keys())
     sample_qids = all_qids[:min(sample_size, len(all_qids))]
 
-    total_reciprocal_rank = 0.0
-    valid_queries = 0
+    # Create mini run dictionary
+    run = {}
 
     with torch.no_grad():
         for qid in tqdm(sample_qids, desc="Quick Eval Sample"):
@@ -174,20 +200,40 @@ def quick_eval_sample(model, query_embeddings, passage_embeddings,
             q_embed_expanded = q_embed.expand(candidate_p_embeds.size(0), -1)
 
             scores = model(q_embed_expanded, candidate_p_embeds)
-            sorted_indices = torch.argsort(scores, descending=True)
 
-            # Check if any of the top 10 candidates are relevant
-            # For this quick eval, we'll assume first candidate is relevant
-            # (this is a simplification - in real eval, you'd check against qrels)
-            if len(sorted_indices) > 0:
-                rank = 1  # Since we don't have qrels here, assume rank 1
-                total_reciprocal_rank += 1.0 / rank
-                valid_queries += 1
+            # Store scores for pytrec_eval
+            run[qid] = {}
+            for i, pid in enumerate(valid_candidate_pids):
+                run[qid][pid] = scores[i].item()
 
-    if valid_queries > 0:
-        avg_rr = total_reciprocal_rank / valid_queries
-        print(f"Quick eval MRR (sample of {valid_queries} queries): {avg_rr:.4f}")
-        return avg_rr
+    # Evaluate using pytrec_eval (only for available queries)
+    if run:
+        # Load qrels and filter to only include our sampled queries
+        qrels = load_qrels(config.DEV_QRELS_PATH)
+        filtered_qrels = {qid: qrels[qid] for qid in run if qid in qrels}
+
+        if filtered_qrels:
+            evaluator = pytrec_eval.RelevanceEvaluator(
+                filtered_qrels,
+                {'mrr_cut.10', 'ndcg_cut.10', 'recall.100'}
+            )
+
+            results = evaluator.evaluate(run)
+
+            # Calculate averages
+            mrr_10 = np.mean([results[qid]['mrr_cut.10'] for qid in results])
+            ndcg_10 = np.mean([results[qid]['ndcg_cut.10'] for qid in results])
+            recall_100 = np.mean([results[qid]['recall.100'] for qid in results])
+
+            print(f"Quick eval results (sample of {len(results)} queries):")
+            print(f"  MRR@10: {mrr_10:.4f}")
+            print(f"  nDCG@10: {ndcg_10:.4f}")
+            print(f"  Recall@100: {recall_100:.4f}")
+
+            return mrr_10
+        else:
+            print("No valid queries for quick evaluation")
+            return 0.0
     else:
         print("No valid queries for quick evaluation")
         return 0.0

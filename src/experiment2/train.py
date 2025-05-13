@@ -76,16 +76,37 @@ def train_model(model_name_key):
     if model_config_params["type"] == "dot_product":
         logger.info("Dot product model requires no training. Evaluating directly.")
         run_file_path = os.path.join(current_model_save_dir, f"run.dev.{model_name_key}.txt")
-        mrr_at_10 = evaluate_model_on_dev(
+        # Updated to handle new return format from evaluate_model_on_dev
+        mrr_at_10, all_metrics = evaluate_model_on_dev(
             model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
             dev_query_to_candidates, run_file_path=run_file_path
         )
         logger.info(f"Dot Product Dev MRR@10: {mrr_at_10:.4f}")
 
-        # Save results
+        # Log additional metrics
+        logger.info(f"Additional metrics:")
+        logger.info(f"  nDCG@10: {all_metrics.get('ndcg_cut.10', 0):.4f}")
+        logger.info(f"  Recall@100: {all_metrics.get('recall.100', 0):.4f}")
+        logger.info(f"  Recall@1000: {all_metrics.get('recall.1000', 0):.4f}")
+
+        # Save results with all metrics
         with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
             f_out.write(f"Model: {model_name_key}\n")
             f_out.write(f"Dev MRR@10: {mrr_at_10:.4f}\n")
+            f_out.write(f"Additional Metrics:\n")
+            for metric, value in all_metrics.items():
+                f_out.write(f"  {metric}: {value:.4f}\n")
+
+        # Save detailed results as JSON
+        results = {
+            'model_name': model_name_key,
+            'mrr_10': mrr_at_10,
+            'all_metrics': all_metrics,
+            'num_parameters': total_params
+        }
+        with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
+            json.dump(results, f_out, indent=2)
+
         return mrr_at_10
 
     # Setup optimizer and loss function for trainable models
@@ -96,6 +117,7 @@ def train_model(model_name_key):
 
     best_dev_mrr = 0.0
     best_epoch = 0
+    best_all_metrics = {}
     training_start_time = time.time()
 
     # Training loop
@@ -148,16 +170,22 @@ def train_model(model_name_key):
         # Evaluate on dev set
         logger.info(f"Evaluating on dev set after epoch {epoch + 1}...")
         run_file_path = os.path.join(current_model_save_dir, f"run.dev.epoch_{epoch + 1}.txt")
-        current_dev_mrr = evaluate_model_on_dev(
+        # Updated to handle new return format
+        current_dev_mrr, current_all_metrics = evaluate_model_on_dev(
             model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
             dev_query_to_candidates, run_file_path=run_file_path
         )
         logger.info(f"Epoch {epoch + 1} Dev MRR@10: {current_dev_mrr:.4f}")
 
+        # Log additional metrics
+        logger.info(f"  nDCG@10: {current_all_metrics.get('ndcg_cut.10', 0):.4f}")
+        logger.info(f"  Recall@100: {current_all_metrics.get('recall.100', 0):.4f}")
+
         # Save best model
         if current_dev_mrr > best_dev_mrr:
             best_dev_mrr = current_dev_mrr
             best_epoch = epoch + 1
+            best_all_metrics = current_all_metrics.copy()
             logger.info(f"New best dev MRR@10: {best_dev_mrr:.4f}. Saving model...")
 
             # Save model state dict
@@ -168,6 +196,7 @@ def train_model(model_name_key):
                 'model_state_dict': model.state_dict(),
                 'epoch': epoch + 1,
                 'mrr_10': current_dev_mrr,
+                'all_metrics': current_all_metrics,
                 'loss': avg_epoch_loss,
                 'model_config': model_config_params,
                 'optimizer_state_dict': optimizer.state_dict()
@@ -179,6 +208,7 @@ def train_model(model_name_key):
             'model_state_dict': model.state_dict(),
             'epoch': epoch + 1,
             'mrr_10': current_dev_mrr,
+            'all_metrics': current_all_metrics,
             'loss': avg_epoch_loss,
             'model_config': model_config_params,
             'optimizer_state_dict': optimizer.state_dict()
@@ -189,14 +219,17 @@ def train_model(model_name_key):
     logger.info(f"Total training time: {training_time:.2f}s")
     logger.info(f"Best Dev MRR@10: {best_dev_mrr:.4f} (achieved at epoch {best_epoch})")
 
-    # Save final results
+    # Save final results with all metrics
     final_results = {
         'model_name': model_name_key,
         'best_dev_mrr': best_dev_mrr,
         'best_epoch': best_epoch,
         'final_loss': avg_epoch_loss,
         'training_time': training_time,
-        'total_epochs': config.NUM_EPOCHS
+        'total_epochs': config.NUM_EPOCHS,
+        'best_all_metrics': best_all_metrics,
+        'num_parameters': total_params,
+        'trainable_parameters': trainable_params
     }
 
     with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
@@ -205,6 +238,11 @@ def train_model(model_name_key):
         f_out.write(f"Best Epoch: {best_epoch}\n")
         f_out.write(f"Final Epoch Average Loss: {avg_epoch_loss:.4f}\n")
         f_out.write(f"Total Training Time: {training_time:.2f}s\n")
+        f_out.write(f"Total Parameters: {total_params:,}\n")
+        f_out.write(f"Trainable Parameters: {trainable_params:,}\n")
+        f_out.write(f"\nBest Model Metrics:\n")
+        for metric, value in best_all_metrics.items():
+            f_out.write(f"  {metric}: {value:.4f}\n")
 
     # Save results as JSON for easy parsing
     with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:

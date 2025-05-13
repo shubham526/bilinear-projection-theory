@@ -64,8 +64,13 @@ MODEL_SAVE_DIR = "experiment2/saved_models/"
 LOG_INTERVAL = 100  # Log training loss every N batches
 
 # --- Evaluation ---
-# Path to the official MS MARCO evaluation script
-MSMARCO_EVAL_SCRIPT = "ms_marco_eval/msmarco_passage_eval.py"
+# Add this if you want to store additional metrics
+METRICS_TO_EVALUATE = [
+    'mrr_cut.10', 'mrr_cut.100', 'mrr_cut.1000',
+    'recip_rank',
+    'recall.100', 'recall.1000',
+    'ndcg_cut.10', 'ndcg_cut.100'
+]
 
 # --- SBERT Model for preprocessing ---
 SBERT_MODEL_NAME = 'all-mpnet-base-v2'  # The SBERT model to use for embedding generation
