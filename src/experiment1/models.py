@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import numpy as np
+
 
 def construct_theoretical_W_I0(n_dim, I0_indices):
     """
@@ -31,6 +33,12 @@ class BilinearScorer(nn.Module):
         self.W = nn.Parameter(W_matrix, requires_grad=False)  # W is fixed
 
     def forward(self, query_embed, passage_embed):
+        # Input validation
+        if query_embed.shape[-1] != self.W.shape[0]:
+            raise ValueError(f"Query dimension {query_embed.shape[-1]} doesn't match W dimension {self.W.shape[0]}")
+        if passage_embed.shape[-1] != self.W.shape[1]:
+            raise ValueError(f"Passage dimension {passage_embed.shape[-1]} doesn't match W dimension {self.W.shape[1]}")
+
         # query_embed: (batch_size, n_dim) or (n_dim)
         # passage_embed: (batch_size, n_dim) or (n_dim)
         if query_embed.ndim == 1:
@@ -45,14 +53,31 @@ class BilinearScorer(nn.Module):
 
 
 class WeightedDotProductModel(nn.Module):
-    def __init__(self, n_dim):
+    """
+    Weighted Dot Product Model: s_v(q,d) = sum_j v_j * q_j * d_j
+    """
+
+    def __init__(self, n_dim, init_strategy='ones'):
         super().__init__()
         self.n_dim = n_dim
         # Trainable weight vector v
-        self.v_weights = nn.Parameter(torch.ones(n_dim))  # Initialize with ones or random
-        # nn.init.xavier_uniform_(self.v_weights.unsqueeze(0)) # Alternative initialization
+        self.v_weights = nn.Parameter(torch.ones(n_dim))  # Initialize with ones
+
+        # Alternative initialization strategies
+        if init_strategy == 'xavier':
+            nn.init.xavier_uniform_(self.v_weights.unsqueeze(0))
+        elif init_strategy == 'random':
+            nn.init.normal_(self.v_weights, mean=0.0, std=1.0)
+        elif init_strategy == 'small_random':
+            nn.init.uniform_(self.v_weights, -0.1, 0.1)
 
     def forward(self, query_embed, passage_embed):
+        # Input validation
+        if query_embed.shape[-1] != self.n_dim:
+            raise ValueError(f"Query dimension {query_embed.shape[-1]} doesn't match model dimension {self.n_dim}")
+        if passage_embed.shape[-1] != self.n_dim:
+            raise ValueError(f"Passage dimension {passage_embed.shape[-1]} doesn't match model dimension {self.n_dim}")
+
         # query_embed: (batch_size, n_dim) or (n_dim)
         # passage_embed: (batch_size, n_dim) or (n_dim)
         if query_embed.ndim == 1:
@@ -65,6 +90,10 @@ class WeightedDotProductModel(nn.Module):
         weighted_q_d_product = self.v_weights * query_embed * passage_embed
         scores = torch.sum(weighted_q_d_product, dim=1)  # (batch_size,)
         return scores
+
+    def get_weights(self):
+        """Return the current weight vector"""
+        return self.v_weights.data.cpu().numpy()
 
 
 if __name__ == '__main__':
@@ -92,3 +121,6 @@ if __name__ == '__main__':
     d_batch = torch.randn(3, n_test)
     print(f"Bilinear batch scores: {bilinear_model(q_batch, d_batch)}")
     print(f"WDP batch scores: {wdp_model(q_batch, d_batch)}")
+
+    # Show weights
+    print(f"WDP weights: {wdp_model.get_weights()}")

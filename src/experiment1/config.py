@@ -14,6 +14,16 @@ WDP_EPOCHS = 5
 WDP_BATCH_SIZE = 128
 WDP_MARGIN = 1.0 # Margin for MarginRankingLoss
 
+# --- Enhanced Analysis Parameters ---
+SAVE_DETAILED_RESULTS = True  # Whether to save detailed results for plotting
+ANALYZE_FAILURE_PATTERNS = True  # Whether to analyze specific failure patterns
+MIN_SAMPLES_FOR_I0_ANALYSIS = 5  # Minimum samples to report I0-specific performance
+CONFIDENCE_LEVEL = 0.95  # Confidence level for confidence intervals
+
+# --- WDP Multiple I0 Testing ---
+NUM_SAMPLES_PER_I0_TEST = 200  # Number of samples when testing WDP on specific I0 sets
+INCLUDE_SPECIALIZED_WDP_TEST = True  # Whether to test WDP trained on specific I0 sets
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 MODEL_SAVE_DIR_EXP1 = "saved_models_exp1/"

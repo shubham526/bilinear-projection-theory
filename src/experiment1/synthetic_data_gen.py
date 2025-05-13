@@ -19,7 +19,7 @@ def generate_random_I0_indices(n_dim, num_indices=2):
 
 def generate_indicator_e_I_hypercube(n_dim, I0_indices):
     """
-    Generates the indicator vector e_I0 in {-1, +1}^n_dim as per Def 3.3.
+    Generates the indicator vector e_I0 in {-1, +1}^n_dim as per Definition 3.3.
     (e_I0)_k = +1 if k in I0_indices, -1 if k not in I0_indices.
     """
     e_I0 = -torch.ones(n_dim, dtype=torch.float32)
@@ -30,11 +30,18 @@ def generate_indicator_e_I_hypercube(n_dim, I0_indices):
 
 def generate_structured_agreement_docs(query_q, e_I0_hypercube):
     """
-    Generates the document multiset D(q, I0) = {q, q*e_I0, -q, -(q*e_I0)}
-    where * is element-wise product (Hadamard product).
+    Generates D(q, I0) = {q, q⊙e_I0, -q, -(q⊙e_I0)} per Definition 3.4
+    where ⊙ is element-wise product (Hadamard product).
+
+    The task requires ranking documents that agree with q on I0 above those that disagree.
+
+    Args:
+        query_q: Query vector in {-1, +1}^n
+        e_I0_hypercube: Indicator vector for index set I0
+
     Returns:
-        docs_agree: list [d_agree1, d_agree2]
-        docs_disagree: list [d_disagree1, d_disagree2]
+        docs_agree: Documents that agree with q on I0 dimensions [q, q⊙e_I0]
+        docs_disagree: Documents that disagree with q on I0 dimensions [-q, -(q⊙e_I0)]
     """
     # Element-wise product
     q_odot_e_I0 = query_q * e_I0_hypercube
@@ -61,6 +68,63 @@ def generate_all_possible_I0_indices(n_dim, num_indices=2):
     return list(itertools.combinations(range(n_dim), num_indices))
 
 
+def generate_challenging_patterns(n_dim):
+    """
+    Generate challenging query-I0 patterns that are particularly difficult for WDP models.
+    These patterns highlight when different I0 sets require conflicting weight priorities.
+    """
+    patterns = []
+
+    if n_dim >= 3:
+        # Pattern 1: Adjacent features
+        patterns.append({
+            "q": torch.tensor([1, 1, 1] + [-1] * (n_dim - 3), dtype=torch.float32),
+            "I0": (0, 1),
+            "name": "Adjacent features (0,1)",
+            "description": "Requires weighting first two dimensions highly"
+        })
+
+        # Pattern 2: Skip one feature
+        patterns.append({
+            "q": torch.tensor([1, -1, 1] + [-1] * (n_dim - 3), dtype=torch.float32),
+            "I0": (0, 2),
+            "name": "Skip one feature (0,2)",
+            "description": "Requires weighting dimensions 0 and 2, but not 1"
+        })
+
+        # Pattern 3: End features
+        if n_dim >= 4:
+            patterns.append({
+                "q": torch.tensor([1, -1, -1, 1] + [-1] * (n_dim - 4), dtype=torch.float32),
+                "I0": (0, 3),
+                "name": "End features (0,3)",
+                "description": "Requires weighting first and last relevant dimensions"
+            })
+
+    # Pattern 4: First two (fallback for n_dim < 3)
+    if n_dim >= 2:
+        patterns.append({
+            "q": torch.tensor([1, 1] + [-1] * (n_dim - 2), dtype=torch.float32),
+            "I0": (0, 1),
+            "name": "Standard first two",
+            "description": "Standard test case for first two dimensions"
+        })
+
+    return patterns
+
+
+def compute_query_document_agreement(query, doc, I0_indices):
+    """
+    Compute how many dimensions in I0 the query and document agree on.
+    Agreement means both have the same sign (both +1 or both -1).
+    """
+    agreements = 0
+    for idx in I0_indices:
+        if query[idx] * doc[idx] > 0:  # Same sign
+            agreements += 1
+    return agreements
+
+
 if __name__ == '__main__':
     # Example Usage
     n = 4
@@ -75,15 +139,21 @@ if __name__ == '__main__':
 
     agree_docs, disagree_docs = generate_structured_agreement_docs(q_test, e_I0_test)
     print("\nAgree Set:")
-    for d in agree_docs:
-        print(d)
+    for i, d in enumerate(agree_docs):
+        print(f"  d{i + 1}: {d}")
     print("\nDisagree Set:")
-    for d in disagree_docs:
-        print(d)
+    for i, d in enumerate(disagree_docs):
+        print(f"  d{i + 1}: {d}")
 
     print(f"\nAll possible I0 for n=3 (k=2): {generate_all_possible_I0_indices(3, 2)}")
 
-    # count = 0
-    # for q_small in generate_all_possible_queries(3):
-    #     count +=1
-    # print(f"\nNumber of queries for n=3: {count}")
+    # Test challenging patterns
+    print("\nChallenging patterns:")
+    patterns = generate_challenging_patterns(n)
+    for pattern in patterns:
+        print(f"  {pattern['name']}: {pattern['description']}")
+
+    # Test agreement computation
+    print(f"\nAgreement between q_test and first agree doc on I0 {I0_test_indices}:")
+    agreement = compute_query_document_agreement(q_test, agree_docs[0], I0_test_indices)
+    print(f"  Agreement count: {agreement} (should be {len(I0_test_indices)})")
