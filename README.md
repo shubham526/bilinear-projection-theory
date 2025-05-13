@@ -76,7 +76,7 @@ python experiment1.py
 **Time Required:** ~5-10 minutes  
 **What it does:** Validates Theorems 3.1.i and 3.1.ii using the Structured Agreement Task
 
-👉 **[Detailed Instructions for Experiment 1](README_experiment1.md)**
+👉 **[Detailed Instructions for Experiment 1](docs/experiment1.md)**
 
 #### Option 2: Real-World Performance Validation
 
@@ -93,7 +93,7 @@ python main_train.py
 **Time Required:** ~8-12 hours (depending on hardware)  
 **What it does:** Validates theoretical advantages on a real-world IR benchmark
 
-👉 **[Detailed Instructions for Experiment 2](README_experiment2.md)**
+👉 **[Detailed Instructions for Experiment 2](docs/experiment2.md)**
 
 ## 🔬 Experiment Overview
 
