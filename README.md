@@ -20,7 +20,8 @@ We present a comprehensive theoretical analysis establishing that bilinear simil
 bilinear-proj-theory/
 ├── docs/                        
 │   ├── Experiment1.md                  # Synthetic experiments (direct theoretical validation)                   
-│   ├── Experiment2.md                  # MS MARCO experiments (real-world validation)
+│   ├── Experiment2.md                   # MS MARCO experiments (real-world validation)
+    ├── Experiment3.md
 ├── README.md                           # This file - general overview
 ├── requirements.txt                    # Common dependencies
 │
@@ -42,7 +43,11 @@ bilinear-proj-theory/
 │   ├── data/                          # MS MARCO data
 │   ├── saved_models/                   # Trained models and results
 │   └── ms_marco_eval/                 # MS MARCO evaluation scripts
-│
+├── experiment3/                        # Low-Rank Approximation Analysis
+│   ├── config.py                       # Experiment 3 configuration
+│   ├── main_experiment3.py             # SVD and approximation analysis
+│   ├── init.py                    # Package structure
+│   └── saved_results_exp3/            # Analysis results and plots
 └── analysis/                          # Analysis and visualization scripts
     ├── plot_results.py                # Visualization utilities
     └── comparative_analysis.py        # Cross-experiment analysis
@@ -95,6 +100,18 @@ python main_train.py
 
 👉 **[Detailed Instructions for Experiment 2](docs/Experiment2.md)**
 
+#### Option 3: Low-Rank Approximation Analysis
+
+Analyze the behavior of low-rank approximations:
+
+```bash
+cd experiment3/
+python -m experiment3.main_experiment3
+```
+**Time Required:** ~30-60 minutes
+**What it does:** Validates Theorem 4.1 by analyzing singular value decomposition of trained bilinear models
+👉 **[Detailed Instructions for Experiment 3](docs/Experiment3.md)**
+
 ## 🔬 Experiment Overview
 
 ### Experiment 1: Synthetic Agreement Task
@@ -112,6 +129,14 @@ python main_train.py
 - **Key Result:** Low-rank bilinear models significantly outperform dot-product baselines
 - **Runtime:** Hours
 - **Insight:** Demonstrates practical value of theoretical advantages
+
+### Experiment 3: Low-Rank Approximation Analysis
+
+- **Purpose:** Validate Theorem 4.1 and analyze efficiency/performance trade-offs
+- **Data:** Pre-trained bilinear models from Experiment 2
+- **Key Result:** Most performance achieved with much lower rank (e.g., rank 64 vs. full rank)
+- **Runtime:** 30-60 minutes
+- **Insight:** Provides practical guidance for efficient bilinear model deployment
 
 ## 📊 Key Findings
 
@@ -190,8 +215,12 @@ For questions about the implementation or paper, please:
 - **Paper**: [Link to paper when available]
 - **Experiment 1 Details**: [Experiment1.md](docs/Experiment1.md)
 - **Experiment 2 Details**: [Experiment2.md](docs/Experiment2.md)
+- **Experiment 3 Details**: [Experiment3.md](docs/Experiment3.md)
 - **Supplementary Materials**: [Link if available]
 
 ---
 
-**Note**: Start with Experiment 1 for a quick understanding of the core theoretical insights, then proceed to Experiment 2 for real-world validation.
+---
+
+**Note**: Start with Experiment 1 for a quick understanding of the core theoretical insights, then proceed to Experiment 2 
+for real-world validation. After training models in Experiment 2, run Experiment 3 to analyze low-rank approximation properties.
