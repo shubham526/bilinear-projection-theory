@@ -4,7 +4,6 @@ import numpy as np
 import json
 from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
-import collections
 import argparse
 import time
 

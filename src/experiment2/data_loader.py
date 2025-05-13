@@ -3,7 +3,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import json
-import random
 from tqdm import tqdm
 import config
 import os

@@ -2,9 +2,7 @@
 import torch
 import torch.optim as optim
 import torch.nn as nn
-from torch.utils.data import DataLoader
 import os
-import numpy as np
 import json
 from tqdm import tqdm
 import time
@@ -13,7 +11,7 @@ import logging
 import config
 from models import get_model
 from data_loader import load_embeddings_and_mappings, load_dev_data_for_eval, create_msmarco_train_dataloader
-from evaluate import evaluate_model_on_dev, quick_eval_sample
+from evaluate import evaluate_model_on_dev
 
 
 def setup_logging(model_save_dir):

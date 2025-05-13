@@ -3,7 +3,6 @@
 Quick training script for testing the pipeline with a small dataset
 """
 import torch
-import os
 from tqdm import tqdm
 
 import config

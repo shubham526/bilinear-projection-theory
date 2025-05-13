@@ -5,7 +5,6 @@ import torch
 from tqdm import tqdm
 import numpy as np
 import config
-from models import get_model
 import re
 
 
