@@ -43,11 +43,13 @@ bilinear-proj-theory/
 │   ├── data/                          # MS MARCO data
 │   ├── saved_models/                   # Trained models and results
 │   └── ms_marco_eval/                 # MS MARCO evaluation scripts
+│ 
 ├── experiment3/                        # Low-Rank Approximation Analysis
 │   ├── config.py                       # Experiment 3 configuration
 │   ├── main_experiment3.py             # SVD and approximation analysis
 │   ├── init.py                    # Package structure
 │   └── saved_results_exp3/            # Analysis results and plots
+│ 
 └── analysis/                          # Analysis and visualization scripts
     ├── plot_results.py                # Visualization utilities
     └── comparative_analysis.py        # Cross-experiment analysis
@@ -110,6 +112,7 @@ python -m experiment3.main_experiment3
 ```
 **Time Required:** ~30-60 minutes
 **What it does:** Validates Theorem 4.1 by analyzing singular value decomposition of trained bilinear models
+
 👉 **[Detailed Instructions for Experiment 3](docs/Experiment3.md)**
 
 ## 🔬 Experiment Overview
