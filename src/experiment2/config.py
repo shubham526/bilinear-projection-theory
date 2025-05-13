@@ -60,7 +60,7 @@ NUM_EPOCHS = 3
 WEIGHT_DECAY = 1e-5
 MARGIN = 1.0  # For MarginRankingLoss
 EVAL_BATCH_SIZE = 256  # For scoring candidates during evaluation
-MODEL_SAVE_DIR = "saved_models/"
+MODEL_SAVE_DIR = "experiment2/saved_models/"
 LOG_INTERVAL = 100  # Log training loss every N batches
 
 # --- Evaluation ---

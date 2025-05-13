@@ -26,4 +26,4 @@ INCLUDE_SPECIALIZED_WDP_TEST = True  # Whether to test WDP trained on specific I
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-MODEL_SAVE_DIR_EXP1 = "saved_models_exp1/"
+MODEL_SAVE_DIR_EXP1 = "experiment1/saved_models_exp1/"
