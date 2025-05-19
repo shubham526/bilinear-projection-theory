@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # evaluate.py
 import pytrec_eval
 import torch
@@ -5,24 +6,64 @@ from tqdm import tqdm
 import numpy as np
 import config
 import os
+import ir_datasets
 
 
-def load_qrels(qrels_path):
+def load_qrels(qrels_path=None, use_ir_datasets=True):
     """
-    Load qrels file in TREC format for pytrec_eval
-    Returns: Dictionary in format {qid: {pid: relevance_score}}
+    Load qrels file either from a file path or using ir_datasets.
+
+    Args:
+        qrels_path: Path to qrels file (only used if use_ir_datasets=False)
+        use_ir_datasets: Whether to use ir_datasets or file path
+
+    Returns:
+        Dictionary in format {qid: {pid: relevance_score}}
     """
     qrels = {}
-    print(f"Loading qrels from: {qrels_path}")
 
-    with open(qrels_path, 'r') as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) >= 4:
-                qid, _, pid, relevance = parts[:4]
+    if use_ir_datasets:
+        print("Loading qrels from ir_datasets...")
+        try:
+            # Load dev dataset from ir_datasets
+            dev_dataset = ir_datasets.load("msmarco-passage/dev/small")
+
+            # Process qrels
+            for qrel in tqdm(dev_dataset.qrels_iter(), desc="Loading qrels"):
+                qid = qrel.query_id
+                pid = qrel.doc_id
+                relevance = qrel.relevance
+
                 if qid not in qrels:
                     qrels[qid] = {}
                 qrels[qid][pid] = int(relevance)
+
+            print(f"Loaded qrels for {len(qrels)} queries from ir_datasets")
+            return qrels
+
+        except Exception as e:
+            print(f"Error loading qrels from ir_datasets: {e}")
+            print("Falling back to file-based loading...")
+            # Will continue with file-based loading below if ir_datasets fails
+
+    # File-based loading (fallback or if requested)
+    if not qrels_path:
+        qrels_path = config.DEV_QRELS_PATH
+
+    print(f"Loading qrels from file: {qrels_path}")
+
+    try:
+        with open(qrels_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 4:
+                    qid, _, pid, relevance = parts[:4]
+                    if qid not in qrels:
+                        qrels[qid] = {}
+                    qrels[qid][pid] = int(relevance)
+    except Exception as e:
+        print(f"Error loading qrels from file: {e}")
+        return {}
 
     print(f"Loaded qrels for {len(qrels)} queries")
     return qrels
@@ -30,10 +71,20 @@ def load_qrels(qrels_path):
 
 def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
                           qid_to_idx, pid_to_idx, dev_query_to_candidates,
-                          run_file_path="run.dev.txt"):
+                          run_file_path="run.dev.txt", use_ir_datasets=True):
     """
     Evaluate model on dev set by scoring candidates and creating a TREC run file.
     Then evaluates using pytrec_eval.
+
+    Args:
+        model: The model to evaluate
+        query_embeddings: Query embeddings numpy array
+        passage_embeddings: Passage embeddings numpy array
+        qid_to_idx: Mapping from query IDs to embedding indices
+        pid_to_idx: Mapping from passage IDs to embedding indices
+        dev_query_to_candidates: Dictionary mapping queries to candidates
+        run_file_path: Path to write run file
+        use_ir_datasets: Whether to use ir_datasets for qrels loading
     """
     model.eval()
 
@@ -58,7 +109,12 @@ def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
 
                 candidate_p_embeds_list = []
                 valid_candidate_pids = []
-                for pid in candidate_pids:
+
+                # Handle different formats of candidate_pids:
+                # - If it's from the file-based loader, it might be a list of PIDs
+                # - If it's from ir_datasets loader, it might be a list of tuples (pid, qidx, pidx)
+                for item in candidate_pids:
+                    pid = item[0] if isinstance(item, tuple) else item
                     try:
                         p_embed_idx = pid_to_idx[pid]
                         candidate_p_embeds_list.append(passage_embeddings[p_embed_idx])
@@ -95,18 +151,29 @@ def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
                     f_run.write(f"{qid}\tQ0\t{passage_id}\t{rank_idx + 1}\t{score:.6f}\tBilinearModel\n")
 
     # Evaluate with pytrec_eval
-    return evaluate_with_pytrec_eval(config.DEV_QRELS_PATH, run)
+    return evaluate_with_pytrec_eval(None, run, use_ir_datasets=use_ir_datasets)
 
 
-def evaluate_with_pytrec_eval(qrels_path, run_dict):
+def evaluate_with_pytrec_eval(qrels_path, run_dict, use_ir_datasets=True):
     """
     Evaluate using pytrec_eval
-    Returns: (mrr_10, all_metrics_dict)
-    """
-    print(f"Evaluating with pytrec_eval using qrels: {qrels_path}")
 
+    Args:
+        qrels_path: Path to qrels file (only used if use_ir_datasets=False)
+        run_dict: Dictionary with run results
+        use_ir_datasets: Whether to use ir_datasets for qrels loading
+
+    Returns:
+        (mrr_10, all_metrics_dict)
+    """
     # Load qrels
-    qrels = load_qrels(qrels_path)
+    qrels = load_qrels(qrels_path, use_ir_datasets=use_ir_datasets)
+
+    if not qrels:
+        print("No qrels found. Cannot evaluate.")
+        return 0.0, {}
+
+    print(f"Evaluating {len(run_dict)} queries with pytrec_eval")
 
     # Create evaluator with metrics
     evaluator = pytrec_eval.RelevanceEvaluator(
@@ -153,7 +220,8 @@ def evaluate_with_pytrec_eval(qrels_path, run_dict):
 
 
 def quick_eval_sample(model, query_embeddings, passage_embeddings,
-                      qid_to_idx, pid_to_idx, dev_query_to_candidates, sample_size=100):
+                      qid_to_idx, pid_to_idx, dev_query_to_candidates,
+                      sample_size=100, use_ir_datasets=True):
     """
     Quick evaluation on a sample of dev queries for faster feedback during training.
     Uses pytrec_eval for consistency with main evaluation.
@@ -185,7 +253,9 @@ def quick_eval_sample(model, query_embeddings, passage_embeddings,
             candidate_p_embeds_list = []
             valid_candidate_pids = []
 
-            for pid in candidate_pids:
+            # Handle different formats of candidate_pids (same as in evaluate_model_on_dev)
+            for item in candidate_pids:
+                pid = item[0] if isinstance(item, tuple) else item
                 try:
                     p_embed_idx = pid_to_idx[pid]
                     candidate_p_embeds_list.append(passage_embeddings[p_embed_idx])
@@ -208,8 +278,8 @@ def quick_eval_sample(model, query_embeddings, passage_embeddings,
 
     # Evaluate using pytrec_eval (only for available queries)
     if run:
-        # Load qrels and filter to only include our sampled queries
-        qrels = load_qrels(config.DEV_QRELS_PATH)
+        # Load qrels
+        qrels = load_qrels(use_ir_datasets=use_ir_datasets)
         filtered_qrels = {qid: qrels[qid] for qid in run if qid in qrels}
 
         if filtered_qrels:

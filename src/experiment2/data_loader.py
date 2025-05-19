@@ -1,63 +1,40 @@
-# data_loader.py
+#!/usr/bin/env python
+# data_loader_ir.py
+"""
+Data loading utilities using ir_datasets for MS MARCO passage ranking
+"""
 import torch
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import json
-from tqdm import tqdm
-import config
 import os
-
-
-class MSMARCOTriplesDataset(Dataset):
-    def __init__(self, triples_path, qid_to_idx, pid_to_idx, query_embeddings, passage_embeddings, limit_size=None):
-        self.qid_to_idx = qid_to_idx
-        self.pid_to_idx = pid_to_idx
-        self.query_embeddings = query_embeddings
-        self.passage_embeddings = passage_embeddings
-        self.triples = []
-
-        print(f"Loading triples from {triples_path}...")
-        with open(triples_path, 'r', encoding='utf-8') as f:
-            for i, line in enumerate(tqdm(f)):
-                if limit_size and i >= limit_size:
-                    print(f"Reached limit of {limit_size} triples.")
-                    break
-                try:
-                    qid, pos_pid, neg_pid = line.strip().split('\t')
-                    # Ensure IDs are in our mapping (and thus have embeddings)
-                    if qid in self.qid_to_idx and \
-                            pos_pid in self.pid_to_idx and \
-                            neg_pid in self.pid_to_idx:
-                        self.triples.append((qid, pos_pid, neg_pid))
-                except ValueError:
-                    # Handle cases where line might not have 3 parts, or other parsing issues
-                    continue  # Skip this line
-        print(f"Loaded {len(self.triples)} valid triples.")
-
-    def __len__(self):
-        return len(self.triples)
-
-    def __getitem__(self, idx):
-        qid, pos_pid, neg_pid = self.triples[idx]
-
-        q_embed_idx = self.qid_to_idx[qid]
-        pos_p_embed_idx = self.pid_to_idx[pos_pid]
-        neg_p_embed_idx = self.pid_to_idx[neg_pid]
-
-        q_embed = torch.tensor(self.query_embeddings[q_embed_idx], dtype=torch.float)
-        pos_p_embed = torch.tensor(self.passage_embeddings[pos_p_embed_idx], dtype=torch.float)
-        neg_p_embed = torch.tensor(self.passage_embeddings[neg_p_embed_idx], dtype=torch.float)
-
-        return q_embed, pos_p_embed, neg_p_embed
+import ir_datasets
+from tqdm import tqdm
+from collections import defaultdict
+import requests
+import tarfile
+import io
+import config
 
 
 def load_embeddings_and_mappings():
+    """
+    Load embeddings and ID mappings from the paths specified in config.
+    """
     print("Loading embeddings and ID mappings...")
 
     # Check if files exist
-    if not os.path.exists(config.QUERY_EMBEDDINGS_PATH):
-        raise FileNotFoundError(
-            f"Query embeddings not found at {config.QUERY_EMBEDDINGS_PATH}. Please run preprocess_embeddings.py first.")
+    required_files = [
+        (config.QUERY_EMBEDDINGS_PATH, "Query embeddings"),
+        (config.PASSAGE_EMBEDDINGS_PATH, "Passage embeddings"),
+        (config.QUERY_ID_TO_IDX_PATH, "Query ID to index mapping"),
+        (config.PASSAGE_ID_TO_IDX_PATH, "Passage ID to index mapping")
+    ]
+
+    for file_path, description in required_files:
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(
+                f"{description} not found at {file_path}. Please run preprocess_embeddings_ir_datasets.py first.")
 
     query_embeddings = np.load(config.QUERY_EMBEDDINGS_PATH)
     passage_embeddings = np.load(config.PASSAGE_EMBEDDINGS_PATH)
@@ -72,10 +49,170 @@ def load_embeddings_and_mappings():
     return query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx
 
 
-def load_dev_data_for_eval(dev_queries_path, dev_candidates_path, qid_to_idx, pid_to_idx):
+class MSMARCOTriplesDataset(Dataset):
+    """
+    Dataset for MS MARCO triples using precomputed embeddings.
+    Can load directly from a file path (original style) or from ir_datasets.
+    """
+
+    def __init__(self, qid_to_idx, pid_to_idx, query_embeddings, passage_embeddings,
+                 triples_path=None, use_ir_datasets=True, limit_size=None):
+        """
+        Initialize the dataset.
+
+        Args:
+            qid_to_idx: Mapping from query IDs to embedding indices
+            pid_to_idx: Mapping from passage IDs to embedding indices
+            query_embeddings: Query embeddings matrix (numpy array)
+            passage_embeddings: Passage embeddings matrix (numpy array)
+            triples_path: Path to triples file (only needed if use_ir_datasets=False)
+            use_ir_datasets: Whether to load triples from ir_datasets (True) or file (False)
+            limit_size: Optional size limit for testing (number of triples)
+        """
+        self.qid_to_idx = qid_to_idx
+        self.pid_to_idx = pid_to_idx
+        self.query_embeddings = query_embeddings
+        self.passage_embeddings = passage_embeddings
+        self.triples = []
+
+        if use_ir_datasets:
+            self._load_triples_from_ir_datasets(limit_size)
+        else:
+            if not triples_path:
+                raise ValueError("triples_path must be provided when use_ir_datasets=False")
+            self._load_triples_from_file(triples_path, limit_size)
+
+        print(f"Loaded {len(self.triples)} valid triples.")
+
+    def _load_triples_from_file(self, triples_path, limit_size):
+        """Load triples from a file"""
+        print(f"Loading triples from {triples_path}...")
+        with open(triples_path, 'r', encoding='utf-8') as f:
+            for i, line in enumerate(tqdm(f)):
+                if limit_size and i >= limit_size:
+                    print(f"Reached limit of {limit_size} triples.")
+                    break
+                try:
+                    qid, pos_pid, neg_pid = line.strip().split('\t')
+                    # Ensure IDs are in our mapping (and thus have embeddings)
+                    if qid in self.qid_to_idx and \
+                            pos_pid in self.pid_to_idx and \
+                            neg_pid in self.pid_to_idx:
+                        self.triples.append((
+                            self.qid_to_idx[qid],
+                            self.pid_to_idx[pos_pid],
+                            self.pid_to_idx[neg_pid]
+                        ))
+                except ValueError:
+                    # Handle cases where line might not have 3 parts, or other parsing issues
+                    continue  # Skip this line
+
+    def _load_triples_from_ir_datasets(self, limit_size):
+        """Load triples from ir_datasets"""
+        print("Loading training triples from ir_datasets...")
+
+        # Load train dataset with triples
+        dataset = ir_datasets.load("msmarco-passage/train/triples-small")
+
+        count = 0
+        skipped = 0
+
+        for docpair in tqdm(dataset.docpairs_iter(), desc="Loading training triples"):
+            qid = docpair.query_id
+            pos_pid = docpair.doc_id_a
+            neg_pid = docpair.doc_id_b
+
+            # Check if we have embeddings for all three IDs
+            if qid in self.qid_to_idx and pos_pid in self.pid_to_idx and neg_pid in self.pid_to_idx:
+                # Store indices to the embeddings
+                self.triples.append((
+                    self.qid_to_idx[qid],
+                    self.pid_to_idx[pos_pid],
+                    self.pid_to_idx[neg_pid]
+                ))
+                count += 1
+
+                # Apply size limit if specified
+                if limit_size is not None and count >= limit_size:
+                    print(f"Reached limit of {limit_size} triples.")
+                    break
+            else:
+                skipped += 1
+
+        print(f"Skipped {skipped} triples due to missing embeddings")
+
+    def __len__(self):
+        return len(self.triples)
+
+    def __getitem__(self, idx):
+        qidx, pos_pidx, neg_pidx = self.triples[idx]
+
+        q_embed = torch.tensor(self.query_embeddings[qidx], dtype=torch.float)
+        pos_p_embed = torch.tensor(self.passage_embeddings[pos_pidx], dtype=torch.float)
+        neg_p_embed = torch.tensor(self.passage_embeddings[neg_pidx], dtype=torch.float)
+
+        return q_embed, pos_p_embed, neg_p_embed
+
+
+def download_top1000_dev(temp_dir=None):
+    """
+    Download and extract top1000.dev file if needed.
+    """
+    if temp_dir is None:
+        temp_dir = os.path.join(os.path.dirname(config.EMBEDDING_DIR), 'temp_download')
+
+    os.makedirs(temp_dir, exist_ok=True)
+    top1000_path = os.path.join(temp_dir, 'top1000.dev.tsv')
+
+    # Check if file already exists
+    if os.path.exists(top1000_path):
+        print(f"Top1000 dev file already exists: {top1000_path}")
+        return top1000_path
+
+    print("Downloading top1000.dev.tar.gz...")
+    url = "https://msmarco.z22.web.core.windows.net/msmarcoranking/top1000.dev.tar.gz"
+
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+
+        # Extract directly from the stream
+        tar_bytes = io.BytesIO(response.content)
+        with tarfile.open(fileobj=tar_bytes, mode='r:gz') as tar:
+            for member in tar.getmembers():
+                if member.name == 'top1000.dev':
+                    f = tar.extractfile(member)
+                    if f:
+                        with open(top1000_path, 'wb') as out_file:
+                            out_file.write(f.read())
+                        break
+
+        print(f"Downloaded and extracted top1000.dev to: {top1000_path}")
+        return top1000_path
+
+    except Exception as e:
+        print(f"Error downloading top1000.dev: {e}")
+        return None
+
+
+def load_dev_data_for_eval(qid_to_idx, pid_to_idx, use_ir_datasets=True):
     """
     Loads dev queries and their top-K candidates for evaluation.
-    Returns a dictionary: {qid: [list of candidate pids]}
+    Can use either ir_datasets (preferred) or config-defined paths.
+
+    Returns:
+        A dictionary: {qid: [(pid, qidx, pidx), ...]}
+    """
+    if use_ir_datasets:
+        return _load_dev_data_from_ir_datasets(qid_to_idx, pid_to_idx)
+    else:
+        return _load_dev_data_from_files(config.DEV_QUERIES_PATH, config.DEV_CANDIDATES_PATH, qid_to_idx, pid_to_idx)
+
+
+def _load_dev_data_from_files(dev_queries_path, dev_candidates_path, qid_to_idx, pid_to_idx):
+    """
+    Loads dev queries and their top-K candidates from files.
+    Returns a dictionary: {qid: [(pid, qidx, pidx), ...]}
     """
     dev_queries = {}
 
@@ -104,7 +241,7 @@ def load_dev_data_for_eval(dev_queries_path, dev_candidates_path, qid_to_idx, pi
                         query_to_candidates[qid] = []
 
                     if pid in pid_to_idx:  # Only keep passages for which we have embeddings
-                        query_to_candidates[qid].append(pid)
+                        query_to_candidates[qid].append((pid, qid_to_idx[qid], pid_to_idx[pid]))
 
     # Filter queries that might not have candidates or embeddings
     valid_dev_queries = {
@@ -116,25 +253,99 @@ def load_dev_data_for_eval(dev_queries_path, dev_candidates_path, qid_to_idx, pi
     return valid_dev_queries
 
 
-def create_msmarco_train_dataloader(limit_size=None):
-    """Helper function to create train dataloader with loaded embeddings"""
+def _load_dev_data_from_ir_datasets(qid_to_idx, pid_to_idx):
+    """
+    Load dev data for evaluation using ir_datasets.
+    Returns a dictionary: {qid: [(pid, qidx, pidx), ...]}
+    """
+    print("Loading dev data using ir_datasets...")
+
+    # Load dev dataset
+    dev_dataset = ir_datasets.load("msmarco-passage/dev/small")
+
+    # Create dictionary mapping each query to its candidates
+    dev_query_to_candidates = defaultdict(list)
+
+    # Get valid query IDs (those with embeddings)
+    valid_qids = set()
+    for query in dev_dataset.queries_iter():
+        if query.query_id in qid_to_idx:
+            valid_qids.add(query.query_id)
+
+    print(f"Found {len(valid_qids)} valid queries in dev set")
+
+    # Parse the top1000 candidates
+    # We need to handle this separately since it's not directly accessible via ir_datasets
+    top1000_path = download_top1000_dev()
+
+    if top1000_path and os.path.exists(top1000_path):
+        lines_processed = 0
+        num_filtered = 0
+
+        with open(top1000_path, 'r', encoding='utf-8') as f:
+            for line in tqdm(f, desc="Loading top1000 candidates"):
+                try:
+                    parts = line.strip().split()
+                    if len(parts) >= 3:
+                        # Format: qid Q0 pid rank score run_name
+                        qid, _, pid = parts[0], parts[1], parts[2]
+
+                        # Only process if this is a valid query
+                        if qid in valid_qids:
+                            # Check if the passage ID is in our embeddings
+                            if pid in pid_to_idx:
+                                # Store candidate as tuple (passage_id, query_embedding_idx, passage_embedding_idx)
+                                dev_query_to_candidates[qid].append(
+                                    (pid, qid_to_idx[qid], pid_to_idx[pid])
+                                )
+                            else:
+                                num_filtered += 1
+
+                            lines_processed += 1
+                except Exception as e:
+                    print(f"Error processing line: {line.strip()} - {e}")
+
+        print(f"Processed {lines_processed} lines from top1000 file")
+        print(f"Filtered out {num_filtered} entries due to missing embeddings")
+
+    print(f"Loaded candidates for {len(dev_query_to_candidates)} queries")
+
+    return dict(dev_query_to_candidates)
+
+
+def create_msmarco_train_dataloader(limit_size=None, use_ir_datasets=True):
+    """
+    Helper function to create train dataloader with loaded embeddings.
+    Can use either ir_datasets or file-based loading.
+    """
     query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
 
-    train_dataset = MSMARCOTriplesDataset(
-        config.TRAIN_TRIPLES_PATH,
-        qid_to_idx,
-        pid_to_idx,
-        query_embeddings,
-        passage_embeddings,
-        limit_size=limit_size
-    )
+    if use_ir_datasets:
+        train_dataset = MSMARCOTriplesDataset(
+            qid_to_idx,
+            pid_to_idx,
+            query_embeddings,
+            passage_embeddings,
+            use_ir_datasets=True,
+            limit_size=limit_size
+        )
+    else:
+        train_dataset = MSMARCOTriplesDataset(
+            qid_to_idx,
+            pid_to_idx,
+            query_embeddings,
+            passage_embeddings,
+            triples_path=config.TRAIN_TRIPLES_PATH,
+            use_ir_datasets=False,
+            limit_size=limit_size
+        )
 
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=config.BATCH_SIZE,
         shuffle=True,
-        num_workers=4,
-        pin_memory=True if config.DEVICE == "cuda" else False
+        num_workers=getattr(config, 'NUM_WORKERS', 4),
+        pin_memory=torch.cuda.is_available()
     )
 
-    return train_dataloader, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx
+    return train_dataloader, train_dataset, query_embeddings, passage_embeddings, (qid_to_idx, pid_to_idx)

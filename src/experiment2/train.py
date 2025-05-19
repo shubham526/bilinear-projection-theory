@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # main_train.py
 import torch
 import torch.optim as optim
@@ -10,7 +11,11 @@ import logging
 
 import config
 from models import get_model
-from data_loader import load_embeddings_and_mappings, load_dev_data_for_eval, create_msmarco_train_dataloader
+from data_loader import (
+    load_embeddings_and_mappings,
+    load_dev_data_for_eval,
+    create_msmarco_train_dataloader
+)
 from evaluate import evaluate_model_on_dev
 
 
@@ -28,7 +33,17 @@ def setup_logging(model_save_dir):
     return logging.getLogger()
 
 
-def train_model(model_name_key):
+def train_model(model_name_key, use_ir_datasets=True):
+    """
+    Train a model specified by model_name_key.
+
+    Args:
+        model_name_key: Key in config.MODEL_CONFIGS
+        use_ir_datasets: Whether to use ir_datasets for data loading
+
+    Returns:
+        best_mrr: Best MRR@10 achieved on dev set
+    """
     print(f"Starting training for model: {model_name_key}")
     model_config_params = config.MODEL_CONFIGS[model_name_key]
 
@@ -41,25 +56,27 @@ def train_model(model_name_key):
     logger.info(f"Starting training for model: {model_name_key}")
     logger.info(f"Model config: {model_config_params}")
     logger.info(f"Device: {config.DEVICE}")
+    logger.info(f"Using ir_datasets: {use_ir_datasets}")
 
     # Load data
     logger.info("Loading embeddings and mappings...")
     query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
 
     # Create train dataloader
-    # Set limit_size for quick testing, None for full training
     train_dataset_limit = None  # Set to a small number like 10000 for quick tests
     logger.info(f"Creating training dataloader (limit_size={train_dataset_limit})...")
 
-    train_dataloader, _, _, _, _ = create_msmarco_train_dataloader(limit_size=train_dataset_limit)
+    train_dataloader, _, _, _, _ = create_msmarco_train_dataloader(
+        limit_size=train_dataset_limit,
+        use_ir_datasets=use_ir_datasets
+    )
 
     # Load dev data for evaluation (load once)
     logger.info("Loading dev data for evaluation...")
     dev_query_to_candidates = load_dev_data_for_eval(
-        config.DEV_QUERIES_PATH,
-        config.DEV_CANDIDATES_PATH,
         qid_to_idx,
-        pid_to_idx
+        pid_to_idx,
+        use_ir_datasets=use_ir_datasets
     )
 
     # Initialize model
@@ -256,24 +273,35 @@ def main():
     # Ensure model save directory exists
     os.makedirs(config.MODEL_SAVE_DIR, exist_ok=True)
 
+    # Parse command line arguments
+    import argparse
+    parser = argparse.ArgumentParser(description='Train MS MARCO passage ranking models')
+    parser.add_argument('--use-files', action='store_true', help='Use file-based loading instead of ir_datasets')
+    parser.add_argument('--models', nargs='+', help='Specific model keys to train (default: all models)')
+    args = parser.parse_args()
+
+    # Use ir_datasets by default
+    use_ir_datasets = not args.use_files
+
     # Log system information
     print(f"PyTorch version: {torch.__version__}")
     print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"CUDA device: {torch.cuda.get_device_name()}")
     print(f"Device: {config.DEVICE}")
+    print(f"Using ir_datasets: {use_ir_datasets}")
 
-    # Models to run - you can customize this list
-    # For quick testing, start with a subset:
-    # models_to_run = ["dot_product", "weighted_dot_product"]
-
-    # To run all defined models:
-    models_to_run = list(config.MODEL_CONFIGS.keys())
+    # Models to run
+    if args.models:
+        models_to_run = args.models
+        print(f"Training specific models: {models_to_run}")
+    else:
+        # To run all defined models:
+        models_to_run = list(config.MODEL_CONFIGS.keys())
+        print(f"Training all {len(models_to_run)} models")
 
     # Store results for comparison
     all_results = {}
-
-    print(f"Will train the following models: {models_to_run}")
 
     for model_key in models_to_run:
         if model_key in config.MODEL_CONFIGS:
@@ -282,7 +310,7 @@ def main():
             print(f"{'=' * 50}")
 
             try:
-                best_mrr = train_model(model_key)
+                best_mrr = train_model(model_key, use_ir_datasets=use_ir_datasets)
                 all_results[model_key] = best_mrr
 
                 print(f"Completed training {model_key}: MRR@10 = {best_mrr:.4f}")
