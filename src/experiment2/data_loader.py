@@ -274,44 +274,46 @@ def _load_dev_data_from_ir_datasets(qid_to_idx, pid_to_idx):
 
     print(f"Found {len(valid_qids)} valid queries in dev set")
 
-    # Parse the top1000 candidates
-    # We need to handle this separately since it's not directly accessible via ir_datasets
-    top1000_path = download_top1000_dev()
+    # Process scored documents directly from ir_datasets
+    processed_count = 0
+    skipped_count = 0
 
-    if top1000_path and os.path.exists(top1000_path):
-        lines_processed = 0
-        num_filtered = 0
+    print("Loading scored documents from ir_datasets...")
+    for scoreddoc in tqdm(dev_dataset.scoreddocs_iter(), desc="Loading candidate passages"):
+        qid = scoreddoc.query_id
+        pid = scoreddoc.doc_id
 
-        with open(top1000_path, 'r', encoding='utf-8') as f:
-            for line in tqdm(f, desc="Loading top1000 candidates"):
-                try:
-                    parts = line.strip().split()
-                    if len(parts) >= 3:
-                        # Format: qid Q0 pid rank score run_name
-                        qid, _, pid = parts[0], parts[1], parts[2]
+        # Only process if this is a valid query
+        if qid in valid_qids:
+            # Check if the passage ID is in our embeddings
+            if pid in pid_to_idx:
+                # Store candidate as tuple (passage_id, query_embedding_idx, passage_embedding_idx)
+                dev_query_to_candidates[qid].append(
+                    (pid, qid_to_idx[qid], pid_to_idx[pid])
+                )
+                processed_count += 1
+            else:
+                skipped_count += 1
 
-                        # Only process if this is a valid query
-                        if qid in valid_qids:
-                            # Check if the passage ID is in our embeddings
-                            if pid in pid_to_idx:
-                                # Store candidate as tuple (passage_id, query_embedding_idx, passage_embedding_idx)
-                                dev_query_to_candidates[qid].append(
-                                    (pid, qid_to_idx[qid], pid_to_idx[pid])
-                                )
-                            else:
-                                num_filtered += 1
-
-                            lines_processed += 1
-                except Exception as e:
-                    print(f"Error processing line: {line.strip()} - {e}")
-
-        print(f"Processed {lines_processed} lines from top1000 file")
-        print(f"Filtered out {num_filtered} entries due to missing embeddings")
-
+    print(f"Processed {processed_count} candidate passages")
+    print(f"Skipped {skipped_count} passages due to missing embeddings")
     print(f"Loaded candidates for {len(dev_query_to_candidates)} queries")
 
-    return dict(dev_query_to_candidates)
+    # Print some stats about the number of candidates per query
+    if dev_query_to_candidates:
+        candidate_counts = [len(candidates) for candidates in dev_query_to_candidates.values()]
+        avg_candidates = sum(candidate_counts) / len(candidate_counts) if candidate_counts else 0
+        print(f"Average candidates per query: {avg_candidates:.1f}")
+        print(f"Min candidates: {min(candidate_counts) if candidate_counts else 0}")
+        print(f"Max candidates: {max(candidate_counts) if candidate_counts else 0}")
 
+        # Print a few examples
+        sample_count = min(3, len(dev_query_to_candidates))
+        print(f"\nExample queries and candidate counts:")
+        for i, (qid, candidates) in enumerate(list(dev_query_to_candidates.items())[:sample_count]):
+            print(f"  Query {qid}: {len(candidates)} candidates")
+
+    return dict(dev_query_to_candidates)
 
 def create_msmarco_train_dataloader(query_embeddings=None, passage_embeddings=None,
                                     qid_to_idx=None, pid_to_idx=None,
