@@ -20,17 +20,15 @@ python main_train.py  # After completing setup steps below
 
 ```
 experiment2/
-├── main_train.py              # Main training script
+├── train.py                   # Main training script
 ├── models.py                  # Model definitions (WDP, LRB, FRB, DotProduct)
-├── data_loader.py             # Dataset and data loading utilities
+├── data_loader_ir.py          # Dataset and data loading utilities using ir_datasets
 ├── config.py                  # Configuration file (paths, hyperparameters)
 ├── evaluate.py                # Evaluation functions
-├── preprocess_embeddings.py   # Script to generate embeddings
+├── preprocess_embeddings.py   # Script to generate embeddings using ir_datasets
 ├── requirements.txt           # Python dependencies for this experiment
 ├── embeddings/                # Directory for pre-computed embeddings (created)
-├── data/                      # Directory for MS MARCO data (you create)
 ├── saved_models/              # Directory for saved models and results (created)
-└── ms_marco_eval/             # Directory for MS MARCO evaluation scripts
 ```
 
 ## ⚙️ Setup Instructions
@@ -40,60 +38,27 @@ experiment2/
 ```bash
 # From the experiment2/ directory
 pip install -r requirements.txt
+
+# Make sure to install ir_datasets
+pip install ir_datasets
 ```
 
-### Step 2: Download MS MARCO V1 Data
-
-Create the data directory and download required files:
-
-```bash
-mkdir -p data/msmarco_v1/
-cd data/msmarco_v1/
-
-# Download the MS MARCO passage collection
-wget https://msmarco.blob.core.windows.net/msmarcoranking/collection.tar.gz
-tar -xzf collection.tar.gz
-
-# Download training triples
-wget https://msmarco.blob.core.windows.net/msmarcoranking/triples.train.small.tar.gz
-tar -xzf triples.train.small.tar.gz
-
-# Download dev queries and qrels
-wget https://msmarco.blob.core.windows.net/msmarcoranking/queries.dev.small.tar.gz
-tar -xzf queries.dev.small.tar.gz
-
-wget https://msmarco.blob.core.windows.net/msmarcoranking/qrels.dev.small.tar.gz
-tar -xzf qrels.dev.small.tar.gz
-
-# Download top1000 candidates for dev set (for faster evaluation)
-wget https://msmarco.blob.core.windows.net/msmarcoranking/top1000.dev.tar.gz
-tar -xzf top1000.dev.tar.gz
-
-cd ../..  # Return to experiment2/
-```
-
-### Step 3: Download MS MARCO Evaluation Script
-
-```bash
-mkdir -p ms_marco_eval/
-cd ms_marco_eval/
-wget https://raw.githubusercontent.com/microsoft/MSMARCO-Passage-Ranking/master/ms_marco_eval.py
-mv ms_marco_eval.py msmarco_passage_eval.py
-cd ..
-```
-
-### Step 4: Configure Paths
+### Step 2: Configure Paths
 
 Edit `config.py` to set correct paths for your setup:
 
 ```python
 # Update these paths to match your directory structure
-MSMARCO_V1_DIR = "data/msmarco_v1/"
 EMBEDDING_DIR = "embeddings/sbert_all-mpnet-base-v2/"
-MSMARCO_EVAL_SCRIPT = "ms_marco_eval/msmarco_passage_eval.py"
+
+# Output paths for embeddings
+QUERY_EMBEDDINGS_PATH = os.path.join(EMBEDDING_DIR, "query_embeddings.npy")
+PASSAGE_EMBEDDINGS_PATH = os.path.join(EMBEDDING_DIR, "passage_embeddings.npy")
+QUERY_ID_TO_IDX_PATH = os.path.join(EMBEDDING_DIR, "query_id_to_idx.json")
+PASSAGE_ID_TO_IDX_PATH = os.path.join(EMBEDDING_DIR, "passage_id_to_idx.json")
 ```
 
-### Step 5: Generate Embeddings
+### Step 3: Generate Embeddings with ir_datasets
 
 **⚠️ IMPORTANT**: This step is required before training and can take several hours.
 
@@ -108,8 +73,8 @@ python preprocess_embeddings.py --model-name sentence-transformers/all-MiniLM-L6
 ```
 
 This will:
+- Use ir_datasets to efficiently load MS MARCO data
 - Extract all unique query and passage IDs from training and dev data
-- Load corresponding text from MS MARCO files
 - Generate SBERT embeddings using `all-mpnet-base-v2` model (768-dim)
 - Save embeddings and ID mappings to `embeddings/` directory
 
@@ -137,7 +102,14 @@ python main_train.py
 ### Full Training
 
 ```bash
-python main_train.py
+# Use ir_datasets (default)
+python train.py
+
+# Use file-based loading instead (if needed)
+python train.py --use-files
+
+# Train only specific models
+python train.py --models dot_product weighted_dot_product
 ```
 
 This will:
@@ -243,7 +215,7 @@ EMBEDDING_DIM = 768  # Match your SBERT model
 LOW_RANK_DIMS = [32, 64, 128]  # Ranks to test for LRB models
 
 # Data parameters
-TRAIN_DATASET_LIMIT = None  # Set to integer for subset training
+NUM_WORKERS = 4  # For DataLoader parallelization
 ```
 
 ### Different SBERT Models
@@ -258,7 +230,7 @@ EMBEDDING_DIM = 384  # Update to match model dimension
 
 2. Regenerate embeddings:
 ```bash
-python preprocess_embeddings.py
+python preprocess_embeddings_ir_datasets.py --model-name sentence-transformers/all-MiniLM-L6-v2
 ```
 
 ## 🐛 Troubleshooting
@@ -267,7 +239,7 @@ python preprocess_embeddings.py
 
 **1. FileNotFoundError during embedding loading**
 ```
-Solution: Ensure preprocess_embeddings.py completed successfully
+Solution: Ensure preprocess_embeddings_ir_datasets.py completed successfully
 Check: ls embeddings/ should show .npy files and mappings
 ```
 
@@ -278,10 +250,11 @@ Solution 2: Use a smaller SBERT model for preprocessing
 Solution 3: Set DEVICE="cpu" in config.py (slower but works)
 ```
 
-**3. Evaluation script errors**
+**3. ir_datasets installation issues**
 ```
-Solution: Verify ms_marco_eval/msmarco_passage_eval.py exists
-Check: Ensure MSMARCO_EVAL_SCRIPT path is correct in config.py
+Solution 1: Upgrade pip (pip install --upgrade pip)
+Solution 2: Install with extra dependencies (pip install ir_datasets[all])
+Solution 3: Try installing without caching (pip install --no-cache-dir ir_datasets)
 ```
 
 **4. Slow preprocessing**
@@ -289,19 +262,20 @@ Check: Ensure MSMARCO_EVAL_SCRIPT path is correct in config.py
 Expected: Preprocessing is CPU/GPU intensive and takes time
 Tip: Use --skip-if-exists flag if embeddings already exist
 Option: Start with smaller model like all-MiniLM-L6-v2
+Option: Use --limit-passages and --limit-queries for testing
 ```
 
 ### Debugging Steps
 
 1. **Verify embeddings**:
 ```bash
-python preprocess_embeddings.py --verify-only
+python preprocess_embeddings_ir_datasets.py --verify-only
 ```
 
 2. **Test with small dataset**:
 ```python
-# In main_train.py, set:
-train_dataset_limit = 1000
+# In main_train.py, specify a small limit:
+python main_train.py --limit-triples 1000
 ```
 
 3. **Check GPU usage**:
@@ -309,7 +283,24 @@ train_dataset_limit = 1000
 nvidia-smi  # Monitor GPU memory
 ```
 
+4. **Test ir_datasets access**:
+```python
+python test_setup_ir_datasets.py
+```
+
 ## 🚀 Advanced Usage
+
+### Switching Between Data Loading Methods
+
+You can choose which data loading method to use:
+
+```bash
+# Use ir_datasets (default, recommended)
+python main_train.py
+
+# Use file-based loading (legacy approach)
+python main_train.py --use-files
+```
 
 ### Custom Models
 
@@ -408,6 +399,7 @@ Before considering the experiment complete:
 ## 📚 Related Resources
 
 - **MS MARCO Homepage**: https://microsoft.github.io/msmarco/
+- **ir_datasets Documentation**: https://ir-datasets.readthedocs.io/
 - **SBERT Documentation**: https://www.sbert.net/
 - **Paper Preprint**: [Link when available]
 - **Experiment 1**: See `../README_experiment1.md` for synthetic validation
