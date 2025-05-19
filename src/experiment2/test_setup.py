@@ -243,7 +243,7 @@ def test_pytrec_eval():
 
         # Initialize evaluator
         evaluator = pytrec_eval.RelevanceEvaluator(
-            qrels, {'ndcg_cut.10', 'mrr_cut.10'}
+            qrels, {'ndcg_cut.10', 'recip_rank', 'recall.100', 'recall.1000', 'ndcg_cut.10', 'ndcg_cut.100'}
         )
 
         # Evaluate
