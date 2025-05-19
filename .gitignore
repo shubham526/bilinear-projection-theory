@@ -112,3 +112,5 @@ training.log
 *.h5
 *.hdf5
 *.npz
+
+!requirements.txt
