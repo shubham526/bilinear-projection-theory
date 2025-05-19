@@ -399,7 +399,7 @@ Before considering the experiment complete:
 ## 📚 Related Resources
 
 - **MS MARCO Homepage**: https://microsoft.github.io/msmarco/
-- **ir_datasets Documentation**: https://ir-datasets.readthedocs.io/
+- **ir_datasets Documentation**: https://github.com/allenai/ir_datasets
 - **SBERT Documentation**: https://www.sbert.net/
 - **Paper Preprint**: [Link when available]
 - **Experiment 1**: See `../README_experiment1.md` for synthetic validation
