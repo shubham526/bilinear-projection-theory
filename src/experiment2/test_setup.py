@@ -241,9 +241,10 @@ def test_pytrec_eval():
             }
         }
 
-        # Initialize evaluator
+        # Initialize evaluator with only standard metrics
+        # Note: 'mrr_cut.10' is NOT a standard metric in pytrec_eval
         evaluator = pytrec_eval.RelevanceEvaluator(
-            qrels, {'ndcg_cut.10', 'recip_rank', 'recall.100', 'recall.1000', 'ndcg_cut.10', 'ndcg_cut.100'}
+            qrels, {'ndcg_cut.10', 'recip_rank', 'recall.100', 'map'}
         )
 
         # Evaluate
@@ -253,6 +254,12 @@ def test_pytrec_eval():
         if 'q1' in results and 'ndcg_cut.10' in results['q1']:
             print(f"✓ pytrec_eval works correctly")
             print(f"  Test ndcg_cut.10: {results['q1']['ndcg_cut.10']:.4f}")
+
+            # Print available metrics for debugging
+            print("  Available metrics in result:")
+            for metric in results['q1'].keys():
+                print(f"    - {metric}: {results['q1'][metric]:.4f}")
+
             return True
         else:
             print("✗ pytrec_eval evaluation failed")
@@ -260,6 +267,8 @@ def test_pytrec_eval():
 
     except Exception as e:
         print(f"✗ Error using pytrec_eval: {e}")
+        import traceback
+        traceback.print_exc()  # This will print the full error traceback
         return False
 
 
