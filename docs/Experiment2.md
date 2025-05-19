@@ -239,7 +239,7 @@ python preprocess_embeddings_ir_datasets.py --model-name sentence-transformers/a
 
 **1. FileNotFoundError during embedding loading**
 ```
-Solution: Ensure preprocess_embeddings_ir_datasets.py completed successfully
+Solution: Ensure preprocess_embeddings.py completed successfully
 Check: ls embeddings/ should show .npy files and mappings
 ```
 
@@ -269,13 +269,13 @@ Option: Use --limit-passages and --limit-queries for testing
 
 1. **Verify embeddings**:
 ```bash
-python preprocess_embeddings_ir_datasets.py --verify-only
+python preprocess_embeddings.py --verify-only
 ```
 
 2. **Test with small dataset**:
 ```python
 # In main_train.py, specify a small limit:
-python main_train.py --limit-triples 1000
+python train.py --limit-triples 1000
 ```
 
 3. **Check GPU usage**:
@@ -285,7 +285,7 @@ nvidia-smi  # Monitor GPU memory
 
 4. **Test ir_datasets access**:
 ```python
-python test_setup_ir_datasets.py
+python test_setup.py
 ```
 
 ## 🚀 Advanced Usage
@@ -296,10 +296,10 @@ You can choose which data loading method to use:
 
 ```bash
 # Use ir_datasets (default, recommended)
-python main_train.py
+python train.py
 
 # Use file-based loading (legacy approach)
-python main_train.py --use-files
+python train.py --use-files
 ```
 
 ### Custom Models
