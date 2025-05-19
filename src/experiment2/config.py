@@ -4,14 +4,7 @@ import torch
 
 # --- Data Paths ---
 # Student needs to update these paths
-MSMARCO_V1_DIR = "data/msmarco_v1/"  # Parent directory for MS MARCO files
 EMBEDDING_DIR = "embeddings/sbert_all-mpnet-base-v2/"  # Parent directory for fixed embeddings
-
-TRAIN_TRIPLES_PATH = f"{MSMARCO_V1_DIR}triples.train.small.tsv"  # Or a subset file they create
-DEV_QUERIES_PATH = f"{MSMARCO_V1_DIR}queries.dev.small.tsv"  # Standard MS MARCO dev queries
-DEV_QRELS_PATH = f"{MSMARCO_V1_DIR}qrels.dev.tsv"
-DEV_CANDIDATES_PATH = f"{MSMARCO_V1_DIR}top1000.dev.txt"  # Standard candidate file
-CORPUS_PATH = f"{MSMARCO_V1_DIR}collection.tsv"  # Full passage collection
 
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
 PASSAGE_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}passage_embeddings.npy"  # NumPy array
