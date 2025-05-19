@@ -1,29 +1,79 @@
-# config.py
+# experiment1/config.py
+
 import torch
 
 # --- Experiment Parameters ---
-DIM_N = 10  # Dimension of the hypercube vectors (n >= 3 for WDP failure demonstration)
-NUM_TEST_CASES_BILINEAR = 1000 # Number of random (q, I0) pairs to test for bilinear model
-NUM_TEST_CASES_WDP_GENERALIZATION = 1000 # Number of (q, I0) pairs to test a single trained WDP on
+DIM_N = 10
+NUM_TEST_CASES_BILINEAR = 1000
+NUM_TEST_CASES_WDP_GENERALIZATION = 1000
 
-# --- Weighted Dot Product (WDP) Training (if attempting to train one) ---
-# These are only used if you choose to train a single WDP model to test its universality
-WDP_TRAIN_SAMPLES = 50000     # Number of (q, I0, d_agree, d_disagree) samples for training WDP
-WDP_LEARNING_RATE = 1e-3
-WDP_EPOCHS = 5
-WDP_BATCH_SIZE = 128
-WDP_MARGIN = 1.0 # Margin for MarginRankingLoss
+# --- WDP Training Base Hyperparameters ---
+# These will be used unless overridden by a specific run configuration
+BASE_WDP_LEARNING_RATE = 1e-3
+BASE_WDP_MARGIN = 1.0
+BASE_WDP_BATCH_SIZE = 128
 
-# --- Enhanced Analysis Parameters ---
-SAVE_DETAILED_RESULTS = True  # Whether to save detailed results for plotting
-ANALYZE_FAILURE_PATTERNS = True  # Whether to analyze specific failure patterns
-MIN_SAMPLES_FOR_I0_ANALYSIS = 5  # Minimum samples to report I0-specific performance
-CONFIDENCE_LEVEL = 0.95  # Confidence level for confidence intervals
+# --- Run Configurations for Experiment 1 ---
+# Define different scenarios you want to run.
+# Each scenario can have its own WDP training settings.
+RUN_CONFIGS = {
+    "default_wdp_training": {
+        "train_wdp_flag": True,
+        "wdp_epochs": 5,
+        "wdp_train_samples": 50000,
+        "wdp_learning_rate": BASE_WDP_LEARNING_RATE, # Use base or override
+        "wdp_batch_size": BASE_WDP_BATCH_SIZE,       # Use base or override
+        "wdp_margin": BASE_WDP_MARGIN,               # Use base or override
+        "description": "Default WDP training settings."
+    },
+    "more_epochs_wdp": {
+        "train_wdp_flag": True,
+        "wdp_epochs": 15, # Increased epochs
+        "wdp_train_samples": 50000,
+        "wdp_learning_rate": BASE_WDP_LEARNING_RATE,
+        "wdp_batch_size": BASE_WDP_BATCH_SIZE,
+        "wdp_margin": BASE_WDP_MARGIN,
+        "description": "WDP training with more epochs."
+    },
+    "more_samples_wdp": {
+        "train_wdp_flag": True,
+        "wdp_epochs": 5, # Back to default epochs, or keep higher if combining
+        "wdp_train_samples": 100000, # Increased samples
+        "wdp_learning_rate": BASE_WDP_LEARNING_RATE,
+        "wdp_batch_size": BASE_WDP_BATCH_SIZE,
+        "wdp_margin": BASE_WDP_MARGIN,
+        "description": "WDP training with more samples."
+    },
+    "default_univar_wdp_no_train": { # For testing the WDP generalization part without training it first
+        "train_wdp_flag": False, # This will make train_single_wdp_model skip training for the main WDP
+        "wdp_epochs": 0, # Not applicable
+        "wdp_train_samples": 0, # Not applicable
+        "description": "Uses a default (untrained, weights=1) WDP for generalization tests."
+    }
+}
 
-# --- WDP Multiple I0 Testing ---
-NUM_SAMPLES_PER_I0_TEST = 200  # Number of samples when testing WDP on specific I0 sets
-INCLUDE_SPECIALIZED_WDP_TEST = True  # Whether to test WDP trained on specific I0 sets
+# List of random seeds to apply to each configuration in RUN_CONFIGS
+# For each config in RUN_CONFIGS, the experiment will be run once per seed in this list.
+SEEDS_TO_RUN = [42, 123, 789] # Add more seeds if desired
+
+# --- Other Parameters ---
+SAVE_DETAILED_RESULTS = True
+ANALYZE_FAILURE_PATTERNS = True
+MIN_SAMPLES_FOR_I0_ANALYSIS = 5
+CONFIDENCE_LEVEL = 0.95
+NUM_SAMPLES_PER_I0_TEST = 200
+INCLUDE_SPECIALIZED_WDP_TEST = True # This trains its own WDP models internally
+
+# +++ Parameters for Specialized WDP Training (within test_wdp_with_multiple_fixed_I0_sets) +++
+SPECIALIZED_WDP_EPOCHS = 3  # Fewer epochs for specialized models as they have a simpler target
+SPECIALIZED_WDP_TRAIN_SAMPLES_FACTOR = 0.2 # Factor of general WDP_TRAIN_SAMPLES (e.g., 50000*0.2 = 10000)
+# +++ END OF ADDED/MODIFIED PARAMETERS FOR SPECIALIZED WDP +++
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MODEL_SAVE_DIR_EXP1 = "/home/shubham-chatterjee/PycharmProjects/bilinear-proj-theory/results/experiment1/saved_models_exp1/" # Make sure this path is correct
 
-MODEL_SAVE_DIR_EXP1 = "/home/shubham-chatterjee/PycharmProjects/bilinear-proj-theory/results/experiment1/saved_models_exp1/"
+# +++ ADDED: Global variable to hold current run's WDP training params +++
+# This is a simple way to pass them to train_single_wdp_model without changing its signature too much
+# or passing config dicts around everywhere.
+CURRENT_WDP_TRAIN_PARAMS = {}
