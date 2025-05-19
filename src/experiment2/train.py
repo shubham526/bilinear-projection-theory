@@ -11,7 +11,7 @@ import logging
 
 import config
 from models import get_model
-from data_loader import (
+from data_loader_ir import (
     load_embeddings_and_mappings,
     load_dev_data_for_eval,
     create_msmarco_train_dataloader
@@ -58,15 +58,19 @@ def train_model(model_name_key, use_ir_datasets=True):
     logger.info(f"Device: {config.DEVICE}")
     logger.info(f"Using ir_datasets: {use_ir_datasets}")
 
-    # Load data
+    # Load data - load once and reuse
     logger.info("Loading embeddings and mappings...")
     query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
 
-    # Create train dataloader
+    # Create train dataloader - pass embeddings to avoid reloading
     train_dataset_limit = None  # Set to a small number like 10000 for quick tests
     logger.info(f"Creating training dataloader (limit_size={train_dataset_limit})...")
 
     train_dataloader, _, _, _, _ = create_msmarco_train_dataloader(
+        query_embeddings=query_embeddings,
+        passage_embeddings=passage_embeddings,
+        qid_to_idx=qid_to_idx,
+        pid_to_idx=pid_to_idx,
         limit_size=train_dataset_limit,
         use_ir_datasets=use_ir_datasets
     )

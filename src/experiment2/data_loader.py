@@ -313,12 +313,31 @@ def _load_dev_data_from_ir_datasets(qid_to_idx, pid_to_idx):
     return dict(dev_query_to_candidates)
 
 
-def create_msmarco_train_dataloader(limit_size=None, use_ir_datasets=True):
+def create_msmarco_train_dataloader(query_embeddings=None, passage_embeddings=None,
+                                    qid_to_idx=None, pid_to_idx=None,
+                                    limit_size=None, use_ir_datasets=True):
     """
     Helper function to create train dataloader with loaded embeddings.
     Can use either ir_datasets or file-based loading.
+
+    Args:
+        query_embeddings: Optional pre-loaded query embeddings
+        passage_embeddings: Optional pre-loaded passage embeddings
+        qid_to_idx: Optional pre-loaded query ID to index mapping
+        pid_to_idx: Optional pre-loaded passage ID to index mapping
+        limit_size: Optional size limit for testing
+        use_ir_datasets: Whether to use ir_datasets for loading
+
+    Returns:
+        train_dataloader: DataLoader for training
+        train_dataset: Dataset object
+        query_embeddings: Query embeddings
+        passage_embeddings: Passage embeddings
+        mappings: Tuple of (qid_to_idx, pid_to_idx)
     """
-    query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
+    # Load embeddings and mappings if not provided
+    if query_embeddings is None or passage_embeddings is None or qid_to_idx is None or pid_to_idx is None:
+        query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
 
     if use_ir_datasets:
         train_dataset = MSMARCOTriplesDataset(

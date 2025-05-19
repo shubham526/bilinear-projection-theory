@@ -39,10 +39,10 @@ MODEL_CONFIGS = {
         "rank": 128
     },
     # Uncomment if you want to experiment with full rank (memory intensive)
-    # "full_rank_bilinear": {
-    #     "type": "full_rank_bilinear",
-    #     "embedding_dim": EMBEDDING_DIM
-    # }
+    "full_rank_bilinear": {
+        "type": "full_rank_bilinear",
+        "embedding_dim": EMBEDDING_DIM
+    }
 }
 
 # --- Training Hyperparameters ---
