@@ -106,9 +106,9 @@ def train_model(model_name_key, use_ir_datasets=True):
 
         # Log additional metrics
         logger.info(f"Additional metrics:")
-        logger.info(f"  nDCG@10: {all_metrics.get('ndcg_cut.10', 0):.4f}")
-        logger.info(f"  Recall@100: {all_metrics.get('recall.100', 0):.4f}")
-        logger.info(f"  Recall@1000: {all_metrics.get('recall.1000', 0):.4f}")
+        logger.info(f"  nDCG@10: {all_metrics.get('ndcg_cut_10', 0):.4f}")
+        logger.info(f"  Recall@100: {all_metrics.get('recall_100', 0):.4f}")
+        logger.info(f"  Recall@1000: {all_metrics.get('recall_1000', 0):.4f}")
 
         # Save results with all metrics
         with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
@@ -199,8 +199,8 @@ def train_model(model_name_key, use_ir_datasets=True):
         logger.info(f"Epoch {epoch + 1} Dev MRR@10: {current_dev_mrr:.4f}")
 
         # Log additional metrics
-        logger.info(f"  nDCG@10: {current_all_metrics.get('ndcg_cut.10', 0):.4f}")
-        logger.info(f"  Recall@100: {current_all_metrics.get('recall.100', 0):.4f}")
+        logger.info(f"  nDCG@10: {current_all_metrics.get('ndcg_cut_10', 0):.4f}")
+        logger.info(f"  Recall@100: {current_all_metrics.get('recall_100', 0):.4f}")
 
         # Save best model
         if current_dev_mrr > best_dev_mrr:
