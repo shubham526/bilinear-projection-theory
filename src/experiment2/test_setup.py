@@ -355,8 +355,8 @@ def main():
         print("⚠ Some tests failed. Please check the issues above.")
         print("\nNext steps:")
         print("1. Install missing dependencies: pip install -r requirements.txt ir_datasets pytrec_eval")
-        print("2. Run preprocess_embeddings_ir_datasets.py to generate embeddings")
-        print("3. Use main_train.py for training")
+        print("2. Run preprocess_embeddings.py to generate embeddings")
+        print("3. Use train.py for training")
 
     return all_passed
 
