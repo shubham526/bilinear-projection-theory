@@ -39,6 +39,13 @@ def test_imports():
         print("✓ ir_datasets (version unknown)")
 
     try:
+        import pytrec_eval
+        print("✓ pytrec_eval")
+    except ImportError:
+        print("✗ pytrec_eval not installed")
+        return False
+
+    try:
         from tqdm import tqdm
         print("✓ tqdm")
     except ImportError:
@@ -60,10 +67,12 @@ def test_config():
         return False
 
     required_vars = [
-        'EMBEDDING_DIR', 'MODEL_CONFIGS',
+        'EMBEDDING_DIR', 'MODEL_CONFIGS', 'MODEL_SAVE_DIR',
         'DEVICE', 'LEARNING_RATE', 'BATCH_SIZE',
         'QUERY_EMBEDDINGS_PATH', 'PASSAGE_EMBEDDINGS_PATH',
-        'QUERY_ID_TO_IDX_PATH', 'PASSAGE_ID_TO_IDX_PATH'
+        'QUERY_ID_TO_IDX_PATH', 'PASSAGE_ID_TO_IDX_PATH',
+        'SBERT_MODEL_NAME', 'EMBEDDING_DIM', 'NUM_EPOCHS',
+        'MARGIN'
     ]
 
     for var in required_vars:
@@ -152,7 +161,7 @@ def test_embedding_paths():
         print(f"✓ Embedding directory exists: {config.EMBEDDING_DIR}")
     else:
         print(f"⚠ Embedding directory not found: {config.EMBEDDING_DIR}")
-        print("  You need to run preprocess_embeddings.py")
+        print("  You need to run preprocess_embeddings_ir_datasets.py")
         return False
 
     # Check embedding files
@@ -211,53 +220,59 @@ def test_models():
     return True
 
 
-def test_evaluation_script():
-    """Test if MS MARCO evaluation script exists"""
-    print("\nTesting evaluation script...")
+def test_pytrec_eval():
+    """Test if pytrec_eval works correctly"""
+    print("\nTesting pytrec_eval...")
 
-    import config
-
-    # Check if using traditional method
-    traditional_path = getattr(config, 'MSMARCO_EVAL_SCRIPT', None)
-
-    # Check if the script exists in the config location
-    if traditional_path and os.path.exists(traditional_path):
-        print(f"✓ Evaluation script found: {traditional_path}")
-        return True
-
-    # Also check if the script is available via ir_datasets
     try:
-        import ir_datasets
-        # Check common locations where ir_datasets might store the script
-        possible_paths = [
-            os.path.join(os.path.dirname(ir_datasets.__file__), 'etc', 'msmarco', 'msmarco_eval.py'),
-            os.path.expanduser('~/.ir_datasets/msmarco/msmarco_eval.py')
-        ]
+        import pytrec_eval
 
-        for path in possible_paths:
-            if os.path.exists(path):
-                print(f"✓ Evaluation script found through ir_datasets: {path}")
-                return True
+        # Create a small test case
+        qrels = {
+            'q1': {
+                'd1': 1,
+                'd2': 0
+            }
+        }
+        run = {
+            'q1': {
+                'd1': 0.9,
+                'd2': 0.5,
+            }
+        }
 
-        # If we can't find it, check if we can download it
-        import requests
-        url = "https://raw.githubusercontent.com/microsoft/MSMARCO-Passage-Ranking/master/ms_marco_eval.py"
-        try:
-            response = requests.head(url)
-            if response.status_code == 200:
-                print(f"✓ Evaluation script available for download from: {url}")
-                print("  Will be automatically downloaded when needed")
-                return True
-        except:
-            pass
+        # Initialize evaluator
+        evaluator = pytrec_eval.RelevanceEvaluator(
+            qrels, {'ndcg_cut.10', 'mrr_cut.10'}
+        )
 
-        print("⚠ Evaluation script not found")
-        print("  It will be downloaded automatically when needed")
+        # Evaluate
+        results = evaluator.evaluate(run)
+
+        # Check if we got results
+        if 'q1' in results and 'ndcg_cut.10' in results['q1']:
+            print(f"✓ pytrec_eval works correctly")
+            print(f"  Test ndcg_cut.10: {results['q1']['ndcg_cut.10']:.4f}")
+            return True
+        else:
+            print("✗ pytrec_eval evaluation failed")
+            return False
+
+    except Exception as e:
+        print(f"✗ Error using pytrec_eval: {e}")
+        return False
+
+
+def test_evaluation_module():
+    """Test if our evaluation module can be imported"""
+    print("\nTesting evaluation module...")
+
+    try:
+        from evaluate import evaluate_model_on_dev, evaluate_with_pytrec_eval
+        print("✓ Evaluation module imported successfully")
         return True
-
-    except ImportError:
-        print("⚠ Evaluation script not found: {traditional_path}")
-        print("  Download from: https://github.com/microsoft/MSMARCO-Passage-Ranking")
+    except ImportError as e:
+        print(f"✗ Cannot import evaluation module: {e}")
         return False
 
 
@@ -287,11 +302,6 @@ def create_directories():
         config.MODEL_SAVE_DIR,
     ]
 
-    # Add eval script dir if it exists in config
-    eval_script_dir = getattr(config, 'MSMARCO_EVAL_SCRIPT', None)
-    if eval_script_dir:
-        dirs_to_create.append(os.path.dirname(eval_script_dir))
-
     for dir_path in dirs_to_create:
         if dir_path and not os.path.exists(dir_path):
             os.makedirs(dir_path, exist_ok=True)
@@ -311,7 +321,8 @@ def main():
         ("ir_datasets", test_ir_datasets),
         ("Embedding Paths", test_embedding_paths),
         ("Models", test_models),
-        ("Evaluation Script", test_evaluation_script),
+        ("PyTrec Eval", test_pytrec_eval),
+        ("Evaluation Module", test_evaluation_module),
         ("GPU", test_gpu),
     ]
 
@@ -343,9 +354,9 @@ def main():
     else:
         print("⚠ Some tests failed. Please check the issues above.")
         print("\nNext steps:")
-        print("1. Install missing dependencies: pip install -r requirements.txt ir_datasets")
+        print("1. Install missing dependencies: pip install -r requirements.txt ir_datasets pytrec_eval")
         print("2. Run preprocess_embeddings_ir_datasets.py to generate embeddings")
-        print("3. Use main_train_ir_datasets.py for training")
+        print("3. Use main_train.py for training")
 
     return all_passed
 
