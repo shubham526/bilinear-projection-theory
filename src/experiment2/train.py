@@ -11,7 +11,7 @@ import logging
 
 import config
 from models import get_model
-from data_loader_ir import (
+from data_loader import (
     load_embeddings_and_mappings,
     load_dev_data_for_eval,
     create_msmarco_train_dataloader
