@@ -4,7 +4,7 @@ import torch
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "embeddings/sbert_all-mpnet-base-v2/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/embeddings/sbert_all-mpnet-base-v2/"  # Parent directory for fixed embeddings
 
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
 PASSAGE_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}passage_embeddings.npy"  # NumPy array
