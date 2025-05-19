@@ -175,16 +175,13 @@ def evaluate_with_pytrec_eval(qrels_path, run_dict, use_ir_datasets=True):
 
     print(f"Evaluating {len(run_dict)} queries with pytrec_eval")
 
+    # Use metrics from config
+    metrics_to_evaluate = set(config.METRICS_TO_EVALUATE)
+
     # Create evaluator with metrics
     evaluator = pytrec_eval.RelevanceEvaluator(
         qrels,
-        {
-            'mrr_cut.10', 'mrr_cut.100', 'mrr_cut.1000',
-            'recip_rank',
-            'recall.100', 'recall.1000',
-            'ndcg_cut.10', 'ndcg_cut.100',
-            'map_cut.10', 'map_cut.100'
-        }
+        metrics_to_evaluate
     )
 
     # Run evaluation
@@ -200,23 +197,85 @@ def evaluate_with_pytrec_eval(qrels_path, run_dict, use_ir_datasets=True):
             values = [results[qid][metric] for qid in results if qid in results]
             aggregated[metric] = np.mean(values) if values else 0.0
 
+    # Calculate MRR@10 separately from the run_dict and qrels
+    # This is a post-processing step since pytrec_eval doesn't support MRR@k directly
+    mrr_at_10 = calculate_mrr_at_k(run_dict, qrels, k=10)
+    aggregated['mrr_cut.10'] = mrr_at_10
+
+    # Also calculate MRR@100 if needed
+    mrr_at_100 = calculate_mrr_at_k(run_dict, qrels, k=100)
+    aggregated['mrr_cut.100'] = mrr_at_100
+
     # Print formatted results
     print("\nEvaluation Results:")
     print("=" * 40)
     print(f"{'Metric':<15} {'Value':<10}")
     print("-" * 40)
-    print(f"{'MRR@10':<15} {aggregated.get('mrr_cut.10', 0):.4f}")
-    print(f"{'MRR@100':<15} {aggregated.get('mrr_cut.100', 0):.4f}")
-    print(f"{'MRR@1000':<15} {aggregated.get('mrr_cut.1000', 0):.4f}")
-    print(f"{'nDCG@10':<15} {aggregated.get('ndcg_cut.10', 0):.4f}")
-    print(f"{'nDCG@100':<15} {aggregated.get('ndcg_cut.100', 0):.4f}")
-    print(f"{'Recall@100':<15} {aggregated.get('recall.100', 0):.4f}")
-    print(f"{'Recall@1000':<15} {aggregated.get('recall.1000', 0):.4f}")
-    print(f"{'MAP@10':<15} {aggregated.get('map_cut.10', 0):.4f}")
+
+    # Define display order with readable names
+    metrics_to_display = [
+        ('mrr_cut.10', 'MRR@10'),
+        ('mrr_cut.100', 'MRR@100'),
+        ('recip_rank', 'MRR'),
+        ('ndcg_cut.10', 'nDCG@10'),
+        ('ndcg_cut.100', 'nDCG@100'),
+        ('recall.100', 'Recall@100'),
+        ('recall.1000', 'Recall@1000'),
+        ('map_cut.10', 'MAP@10'),
+        ('map_cut.100', 'MAP@100')
+    ]
+
+    # Display metrics in the defined order
+    for metric_key, display_name in metrics_to_display:
+        if metric_key in aggregated:
+            print(f"{display_name:<15} {aggregated[metric_key]:.4f}")
+
     print("=" * 40)
 
     # Return MRR@10 as primary metric and all metrics
-    return aggregated.get('mrr_cut.10', 0), aggregated
+    return mrr_at_10, aggregated
+
+
+def calculate_mrr_at_k(run_dict, qrels, k=10):
+    """
+    Calculate Mean Reciprocal Rank at cutoff k manually.
+
+    Args:
+        run_dict: Dictionary of {qid: {pid: score}}
+        qrels: Dictionary of {qid: {pid: relevance}}
+        k: Cutoff rank
+
+    Returns:
+        MRR@k value
+    """
+    reciprocal_ranks = []
+
+    for qid in qrels:
+        if qid not in run_dict:
+            continue
+
+        # Get relevant document IDs for this query
+        relevant_docs = {pid for pid, rel in qrels[qid].items() if rel > 0}
+        if not relevant_docs:
+            continue
+
+        # Sort documents by score for this query
+        sorted_docs = sorted(run_dict[qid].items(), key=lambda x: x[1], reverse=True)[:k]
+
+        # Find the first relevant document's rank
+        for rank, (pid, _) in enumerate(sorted_docs, start=1):
+            if pid in relevant_docs:
+                reciprocal_ranks.append(1.0 / rank)
+                break
+        else:
+            # No relevant docs in top k
+            reciprocal_ranks.append(0.0)
+
+    # Calculate mean
+    if reciprocal_ranks:
+        return sum(reciprocal_ranks) / len(reciprocal_ranks)
+    else:
+        return 0.0
 
 
 def quick_eval_sample(model, query_embeddings, passage_embeddings,
