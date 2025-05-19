@@ -59,9 +59,10 @@ LOG_INTERVAL = 100  # Log training loss every N batches
 # --- Evaluation ---
 # Add this if you want to store additional metrics
 METRICS_TO_EVALUATE = [
-    'recip_rank',
-    'recall.100', 'recall.1000',
-    'ndcg_cut.10', 'ndcg_cut.100'
+    'ndcg_cut_10', 'ndcg_cut_100',
+    'recall_100', 'recall_1000',
+    'map',
+    'recip_rank'
 ]
 
 # --- SBERT Model for preprocessing ---

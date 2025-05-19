@@ -241,53 +241,29 @@ def test_pytrec_eval():
             }
         }
 
-        # Print pytrec_eval version information if available
-        try:
-            print(f"pytrec_eval version: {pytrec_eval.__version__}")
-        except AttributeError:
-            print("pytrec_eval version not available")
+        # Initialize evaluator with only supported metrics
+        evaluator = pytrec_eval.RelevanceEvaluator(
+            qrels, {'ndcg_cut_10', 'recip_rank', 'recall_100', 'map'}
+        )
 
-        # List all supported metrics
-        try:
-            print("Available measures in pytrec_eval:")
-            measures = pytrec_eval.supported_measures
-            if measures:
-                for measure in sorted(measures):
-                    print(f"  - {measure}")
-            else:
-                print("  No measures list available")
-        except AttributeError:
-            print("Could not access supported_measures")
+        # Evaluate
+        results = evaluator.evaluate(run)
 
-        # Try with a single, simple metric
-        print("Testing with a single metric: 'map'")
-        simple_evaluator = pytrec_eval.RelevanceEvaluator(qrels, {'map'})
-        simple_results = simple_evaluator.evaluate(run)
-
-        if 'q1' in simple_results:
-            print(f"Basic test with 'map' successful!")
-            for metric, value in simple_results['q1'].items():
-                print(f"  {metric}: {value:.4f}")
-
-            # Now try with a few standard metrics
-            print("\nTesting with common metrics")
-            standard_evaluator = pytrec_eval.RelevanceEvaluator(
-                qrels, {'map', 'ndcg', 'recall.10'}
-            )
-            standard_results = standard_evaluator.evaluate(run)
-
-            for metric, value in standard_results['q1'].items():
-                print(f"  {metric}: {value:.4f}")
-
+        # Check if we got results
+        if 'q1' in results and 'ndcg_cut_10' in results['q1']:
+            print(f"✓ pytrec_eval works correctly")
+            print(f"  Test ndcg_cut_10: {results['q1']['ndcg_cut_10']:.4f}")
             return True
         else:
-            print("Basic test failed - no results returned")
+            print("✗ pytrec_eval evaluation failed")
+            if 'q1' in results:
+                print("  Available metrics in result:")
+                for metric in results['q1'].keys():
+                    print(f"    - {metric}: {results['q1'][metric]:.4f}")
             return False
 
     except Exception as e:
         print(f"✗ Error using pytrec_eval: {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
 
