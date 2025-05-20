@@ -4,7 +4,7 @@ import torch
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "/home/user/embeddings/sbert_all-mpnet-base-v2/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/sisap2025/embeddings/sbert_all-mpnet-base-v2/"  # Parent directory for fixed embeddings
 
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
 PASSAGE_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}passage_embeddings.npy"  # NumPy array
@@ -48,12 +48,12 @@ MODEL_CONFIGS = {
 # --- Training Hyperparameters ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 64  # For query-positive-negative triples
-NUM_EPOCHS = 3
+BATCH_SIZE = 256  # For query-positive-negative triples
+NUM_EPOCHS = 8
 WEIGHT_DECAY = 1e-5
 MARGIN = 1.0  # For MarginRankingLoss
 EVAL_BATCH_SIZE = 256  # For scoring candidates during evaluation
-MODEL_SAVE_DIR = "experiment2/saved_models/"
+MODEL_SAVE_DIR = "/home/user/sisap2025/experiment2/saved_models/"
 LOG_INTERVAL = 100  # Log training loss every N batches
 
 # --- Evaluation ---
