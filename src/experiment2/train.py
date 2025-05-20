@@ -288,7 +288,40 @@ def train_model(model_name_key, use_ir_datasets=True):
     with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
         json.dump(final_results, f_out, indent=2)
 
-    return best_dev_mrr
+    # Perform final evaluation on the eval set with the best model
+    logger.info("\nPerforming final evaluation on MS MARCO eval set...")
+    try:
+        best_model_path = os.path.join(current_model_save_dir, "best_model.pth")
+        if os.path.exists(best_model_path):
+            logger.info(f"Loading best model from {best_model_path} for final evaluation...")
+            best_model = get_model(model_name_key, model_config_params).to(config.DEVICE)
+            best_model.load_state_dict(torch.load(best_model_path))
+            best_model.eval()
+
+            # Perform evaluation on the MS MARCO eval set (imported from evaluate.py)
+            from evaluate import evaluate_on_final_eval_set
+            eval_mrr, eval_metrics = evaluate_on_final_eval_set(
+                best_model, query_embeddings, passage_embeddings,
+                qid_to_idx, pid_to_idx, current_model_save_dir, model_name_key,
+                use_ir_datasets=use_ir_datasets
+            )
+
+            # Add eval results to the final results
+            final_results['eval_mrr'] = eval_mrr
+            if eval_metrics:
+                final_results['eval_metrics'] = eval_metrics
+
+            # Update the results.json file with eval results
+            with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
+                json.dump(final_results, f_out, indent=2)
+
+            logger.info(f"Updated results.json with eval set performance metrics")
+    except Exception as e:
+        logger.error(f"Error during final eval set evaluation: {e}")
+        logger.error("Continuing without eval set evaluation")
+
+
+    return best_dev_mrr, final_results
 
 
 def main():
@@ -333,16 +366,23 @@ def main():
             print(f"{'=' * 50}")
 
             try:
-                best_mrr = train_model(model_key, use_ir_datasets=use_ir_datasets)
-                all_results[model_key] = best_mrr
+                best_mrr, model_results = train_model(model_key, use_ir_datasets=use_ir_datasets)
 
-                print(f"Completed training {model_key}: MRR@10 = {best_mrr:.4f}")
+                # Store a more complete set of results
+                all_results[model_key] = {
+                    'dev_mrr': best_mrr,
+                    'eval_mrr': model_results.get('eval_mrr', 'N/A')
+                }
+
+                print(f"Completed training {model_key}: Dev MRR@10 = {best_mrr:.4f}")
+                if 'eval_mrr' in model_results and model_results['eval_mrr'] is not None:
+                    print(f"Eval MRR@10 = {model_results['eval_mrr']:.4f}")
 
             except Exception as e:
                 print(f"Error training {model_key}: {e}")
                 import traceback
                 traceback.print_exc()
-                all_results[model_key] = 0.0
+                all_results[model_key] = {'dev_mrr': 0.0, 'eval_mrr': 'N/A'}
         else:
             print(f"Warning: Model key '{model_key}' not found in MODEL_CONFIGS. Skipping.")
 
@@ -350,10 +390,12 @@ def main():
     print(f"\n{'=' * 50}")
     print("FINAL RESULTS SUMMARY")
     print(f"{'=' * 50}")
-    print(f"{'Model':<25} {'MRR@10':<15}")
-    print(f"{'-' * 40}")
-    for model_name, mrr in sorted(all_results.items(), key=lambda x: x[1], reverse=True):
-        print(f"{model_name:<25} {mrr:<15.4f}")
+    print(f"{'Model':<25} {'Dev MRR@10':<15} {'Eval MRR@10':<15}")
+    print(f"{'-' * 55}")
+    for model_name, results in all_results.items():
+        dev_mrr = results.get('dev_mrr', 0.0)
+        eval_mrr = results.get('eval_mrr', 'N/A')
+        print(f"{model_name:<25} {dev_mrr:<15.4f} {eval_mrr if isinstance(eval_mrr, str) else eval_mrr:.4f}")
 
     # Save overall summary
     summary_path = os.path.join(config.MODEL_SAVE_DIR, "summary_results.json")

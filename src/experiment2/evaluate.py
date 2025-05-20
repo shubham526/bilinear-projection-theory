@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 # evaluate.py
+import json
+
 import pytrec_eval
 import torch
 from tqdm import tqdm
@@ -67,6 +69,90 @@ def load_qrels(qrels_path=None, use_ir_datasets=True):
 
     print(f"Loaded qrels for {len(qrels)} queries")
     return qrels
+
+
+def evaluate_on_final_eval_set(model, query_embeddings, passage_embeddings,
+                               qid_to_idx, pid_to_idx, model_save_dir, model_name_key,
+                               use_ir_datasets=True):
+    """
+    Performs a final evaluation on the MS MARCO eval set and saves detailed results.
+
+    Args:
+        model: Trained model
+        query_embeddings, passage_embeddings: Precomputed embeddings
+        qid_to_idx, pid_to_idx: ID mappings
+        model_save_dir: Directory to save results
+        model_name_key: Name of the model
+        use_ir_datasets: Whether to use ir_datasets
+
+    Returns:
+        tuple: (mrr_at_10, all_metrics) - evaluation metrics
+    """
+    print(f"Performing final evaluation on MS MARCO eval set for {model_name_key}...")
+
+    # Load eval data using ir_datasets
+    eval_query_to_candidates = {}
+
+    # Use ir_datasets to load the evaluation set
+    try:
+        eval_dataset = ir_datasets.load("msmarco-passage/eval/small")
+
+        # Get valid query IDs (those with embeddings)
+        valid_eval_qids = set()
+        for query in eval_dataset.queries_iter():
+            if query.query_id in qid_to_idx:
+                valid_eval_qids.add(query.query_id)
+
+        print(f"Found {len(valid_eval_qids)} valid evaluation queries")
+
+        # Process scored documents
+        for qid in valid_eval_qids:
+            eval_query_to_candidates[qid] = []
+
+        for scoreddoc in tqdm(eval_dataset.scoreddocs_iter(), desc="Loading eval candidates"):
+            qid = scoreddoc.query_id
+            pid = scoreddoc.doc_id
+
+            if qid in valid_eval_qids and pid in pid_to_idx:
+                eval_query_to_candidates[qid].append(
+                    (pid, qid_to_idx[qid], pid_to_idx[pid])
+                )
+
+        # Run evaluation
+        run_file_path = os.path.join(model_save_dir, f"run.eval.{model_name_key}.txt")
+
+        mrr_at_10, all_metrics = evaluate_model_on_dev(
+            model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
+            eval_query_to_candidates, run_file_path=run_file_path, use_ir_datasets=use_ir_datasets
+        )
+
+        # Save detailed results
+        eval_results = {
+            'model_name': model_name_key,
+            'eval_mrr_10': mrr_at_10,
+            'eval_metrics': all_metrics
+        }
+
+        with open(os.path.join(model_save_dir, "eval_set_results.json"), "w") as f_out:
+            json.dump(eval_results, f_out, indent=2)
+
+        with open(os.path.join(model_save_dir, "eval_set_results.txt"), "w") as f_out:
+            f_out.write(f"Model: {model_name_key}\n")
+            f_out.write(f"Eval MRR@10: {mrr_at_10:.4f}\n")
+            f_out.write(f"Detailed Metrics:\n")
+            for metric, value in all_metrics.items():
+                f_out.write(f"  {metric}: {value:.4f}\n")
+
+        print(f"Eval MRR@10: {mrr_at_10:.4f}")
+        print(f"Complete evaluation results saved to {model_save_dir}")
+
+        return mrr_at_10, all_metrics
+
+    except Exception as e:
+        print(f"Error during final evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+        return None, None
 
 
 def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
