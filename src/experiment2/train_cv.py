@@ -464,6 +464,13 @@ def main():
 
     # Run training for each model and fold
     for model_key in models_to_run:
+        # Define this BEFORE any potential exceptions
+        if dataset_name == "car":
+            main_metric_name = 'map'
+        elif dataset_name == "robust":
+            main_metric_name = "ndcg_cut_10"
+        else:
+            main_metric_name = "mrr_10"
         if model_key not in config.MODEL_CONFIGS:
             print(f"Warning: Model key '{model_key}' not found in MODEL_CONFIGS. Skipping.")
             continue
