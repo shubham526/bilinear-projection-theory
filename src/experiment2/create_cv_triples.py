@@ -384,10 +384,57 @@ def main():
                         help='Output directory for triplets files (defaults to config value)')
     parser.add_argument('--all-triples', action='store_true',
                         help='Create a single file with all triples regardless of folds')
+    # Add embedding-dir argument
+    parser.add_argument('--embedding-dir', type=str, default=None,
+                        help='Directory containing embeddings (overrides config.EMBEDDING_DIR)')
     args = parser.parse_args()
 
     dataset_name = args.dataset.lower()
     config_prefix = dataset_name.upper()
+
+    # Update embedding directory if specified
+    if args.embedding_dir:
+        original_embedding_dir = config.EMBEDDING_DIR
+        config.EMBEDDING_DIR = args.embedding_dir
+        print(f"Overriding embedding directory to: {config.EMBEDDING_DIR}")
+
+        # Update all dependent paths
+        for dataset_prefix in ['', 'CAR_', 'ROBUST_']:
+            # Skip if the original dataset prefix doesn't match our current dataset
+            if dataset_prefix and not dataset_prefix.startswith(config_prefix):
+                continue
+
+            # Update Query Embeddings Path
+            path_attr = f"{dataset_prefix}QUERY_EMBEDDINGS_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
+
+            # Update Passage Embeddings Path
+            path_attr = f"{dataset_prefix}PASSAGE_EMBEDDINGS_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
+
+            # Update Query ID to Index Path
+            path_attr = f"{dataset_prefix}QUERY_ID_TO_IDX_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
+
+            # Update Passage ID to Index Path
+            path_attr = f"{dataset_prefix}PASSAGE_ID_TO_IDX_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
 
     # Set defaults from config if not provided
     qrels_file = args.qrels_file or getattr(config, f"{config_prefix}_QRELS_FILE")
