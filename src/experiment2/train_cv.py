@@ -436,10 +436,58 @@ def main():
                         help='Path to folds JSON file (default: from config)')
     parser.add_argument('--triples-dir', type=str, default='data/cv_triples',
                         help='Directory containing pre-created training triples')
+    # Add embedding-dir argument
+    parser.add_argument('--embedding-dir', type=str, default=None,
+                        help='Directory containing embeddings (overrides config.EMBEDDING_DIR)')
     args = parser.parse_args()
 
     dataset_name = args.dataset
     triples_dir = args.triples_dir
+
+    # Update embedding directory if specified
+    if args.embedding_dir:
+        original_embedding_dir = config.EMBEDDING_DIR
+        config.EMBEDDING_DIR = args.embedding_dir
+        print(f"Overriding embedding directory to: {config.EMBEDDING_DIR}")
+
+        # Update all dependent paths
+        for dataset_prefix in ['', 'CAR_', 'ROBUST_']:
+            # Skip if the original dataset prefix doesn't match our current dataset
+            config_prefix = dataset_name.upper()
+            if dataset_prefix and not dataset_prefix.startswith(config_prefix):
+                continue
+
+            # Update Query Embeddings Path
+            path_attr = f"{dataset_prefix}QUERY_EMBEDDINGS_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
+
+            # Update Passage Embeddings Path
+            path_attr = f"{dataset_prefix}PASSAGE_EMBEDDINGS_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
+
+            # Update Query ID to Index Path
+            path_attr = f"{dataset_prefix}QUERY_ID_TO_IDX_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
+
+            # Update Passage ID to Index Path
+            path_attr = f"{dataset_prefix}PASSAGE_ID_TO_IDX_PATH"
+            if hasattr(config, path_attr):
+                original_path = getattr(config, path_attr)
+                new_path = original_path.replace(original_embedding_dir, args.embedding_dir)
+                setattr(config, path_attr, new_path)
+                print(f"Updated {path_attr}: {new_path}")
 
     # Get appropriate folds file
     if args.folds_file:
@@ -464,6 +512,7 @@ def main():
     print(f"Dataset: {dataset_name}")
     print(f"Folds file: {folds_file_path}")
     print(f"Triples directory: {triples_dir}")
+    print(f"Embedding directory: {config.EMBEDDING_DIR}")
 
     # Load folds
     folds = load_folds(folds_file_path)
@@ -489,15 +538,16 @@ def main():
     # Store results for all folds and models
     all_results = {model_key: {} for model_key in models_to_run}
 
+    # Define the main metric based on dataset before any potential exceptions
+    if dataset_name == "car":
+        main_metric_name = 'map'
+    elif dataset_name == "robust":
+        main_metric_name = "ndcg_cut_10"
+    else:
+        main_metric_name = "mrr_10"
+
     # Run training for each model and fold
     for model_key in models_to_run:
-        # Define this BEFORE any potential exceptions
-        if dataset_name == "car":
-            main_metric_name = 'map'
-        elif dataset_name == "robust":
-            main_metric_name = "ndcg_cut_10"
-        else:
-            main_metric_name = "mrr_10"
         if model_key not in config.MODEL_CONFIGS:
             print(f"Warning: Model key '{model_key}' not found in MODEL_CONFIGS. Skipping.")
             continue
