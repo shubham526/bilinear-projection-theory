@@ -459,6 +459,50 @@ plt.tight_layout()
 plt.show()
 ```
 
+## 🔄 Automated Pipeline
+
+For systematic execution across multiple models and datasets, an automated pipeline script is available.
+
+### Pipeline Overview
+
+The pipeline automates the entire workflow:
+1. **Embedding Generation**: Creates embeddings for all models and datasets
+2. **CV Triples Creation**: Generates cross-validation data for TREC CAR and ROBUST
+3. **Model Training**: Trains and evaluates all model configurations
+
+### Quick Pipeline Usage
+
+```bash
+# Run full pipeline with all models and datasets
+./run_experiment_pipeline.sh
+
+# Run for specific models only
+python run_experiment_pipeline.py --embedding-models microsoft/mpnet-base facebook/contriever
+
+# Run for specific datasets only
+python run_experiment_pipeline.py --datasets msmarco car
+
+# Run specific pipeline components
+python run_experiment_pipeline.py --pipeline-components embeddings training
+```
+
+### Supported Embedding Models
+
+The pipeline supports multiple embedding models:
+- `microsoft/mpnet-base`: Similar architecture to SBERT's MPNet
+- `google/electra-base`: Good performance with efficient training
+- `facebook/contriever`: Specifically designed for retrieval
+
+### Time Estimates
+
+Approximate execution times on RTX 3090:
+- Complete pipeline (3 models, 3 datasets): ~88 hours
+- MS MARCO dataset per model: ~10 hours
+- TREC CAR dataset per model: ~6 hours
+- TREC ROBUST dataset per model: ~14 hours
+
+For detailed pipeline documentation, see [Experiment2_Pipeline.md](Experiment2_Pipeline.md).
+
 ## ✅ Validation Checklist
 
 Before considering the experiment complete:
