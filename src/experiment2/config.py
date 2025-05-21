@@ -8,7 +8,7 @@ DATASET_NAME = "msmarco-passage"  # Default dataset if not specified
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "/home/user/sisap2025/embeddings/sbert_all-mpnet-base-v2/car/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/sisap2025/embeddings/sbert_all-mpnet-base-v2/robust/"  # Parent directory for fixed embeddings
 
 # Standard MS MARCO paths
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
