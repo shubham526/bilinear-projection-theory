@@ -8,21 +8,13 @@ DATASET_NAME = "msmarco-passage"  # Default dataset if not specified
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "/home/user/sisap2025/embeddings/sbert_all-mpnet-base-v2/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/sisap2025/embeddings/sbert_all-mpnet-base-v2/robust"  # Parent directory for fixed embeddings
 
 # Standard MS MARCO paths
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
 PASSAGE_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}passage_embeddings.npy"  # NumPy array
 QUERY_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}query_id_to_idx.json"  # Maps qid to embedding row index
 PASSAGE_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}passage_id_to_idx.json"  # Maps pid to embedding row index
-
-# MS MARCO specific paths for train/dev separation
-MSMARCO_PASSAGE_TRAIN_QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}msmarco_train_query_embeddings.npy"
-MSMARCO_PASSAGE_TRAIN_QUERY_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}msmarco_train_query_id_to_idx.json"
-MSMARCO_PASSAGE_DEV_QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}msmarco_dev_query_embeddings.npy"
-MSMARCO_PASSAGE_DEV_QUERY_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}msmarco_dev_query_id_to_idx.json"
-MSMARCO_PASSAGE_PASSAGE_EMBEDDINGS_PATH = PASSAGE_EMBEDDINGS_PATH
-MSMARCO_PASSAGE_PASSAGE_ID_TO_IDX_PATH = PASSAGE_ID_TO_IDX_PATH
 
 # TREC CAR paths
 CAR_QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}car_query_embeddings.npy"
@@ -32,8 +24,8 @@ CAR_PASSAGE_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}car_passage_id_to_idx.json"
 
 # CAR data files
 CAR_QUERIES_FILE = "/home/user/sisap2025/data/car/queries.tsv"  # Update this path
-CAR_QRELS_FILE = "/home/user/sisap2025/data/car/qrels.tsv"  # Update this path
-CAR_RUN_FILE = "/home/user/sisap2025/data/car/run.tsv"  # Update this path
+CAR_QRELS_FILE = "/home/user/sisap2025/data/car/qrels.txt"  # Update this path
+CAR_RUN_FILE = "/home/user/sisap2025/data/car/run.txt"  # Update this path
 CAR_FOLDS_FILE = "/home/user/sisap2025/data/car/folds.json"  # Update this path
 
 # TREC ROBUST paths
@@ -44,8 +36,8 @@ ROBUST_PASSAGE_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}robust_passage_id_to_idx.json"
 
 # ROBUST data files
 ROBUST_QUERIES_FILE = "/home/user/sisap2025/data/robust/queries.tsv"  # Update this path
-ROBUST_QRELS_FILE = "/home/user/sisap2025/data/robust/qrels.tsv"  # Update this path
-ROBUST_RUN_FILE = "/home/user/sisap2025/data/robust/run.tsv"  # Update this path
+ROBUST_QRELS_FILE = "/home/user/sisap2025/data/robust/qrels.txt"  # Update this path
+ROBUST_RUN_FILE = "/home/user/sisap2025/data/robust/run.txt"  # Update this path
 ROBUST_FOLDS_FILE = "/home/user/sisap2025/data/robust/folds.json"  # Update this path
 
 # --- Model Configs ---
@@ -95,7 +87,7 @@ LOG_INTERVAL = 100  # Log training loss every N batches
 
 # --- Cross-validation Training Settings ---
 CV_BATCH_SIZE = 256
-CV_NUM_NEGATIVES = 1  # Number of negative samples per positive
+CV_NUM_NEGATIVES = 3  # Number of negative samples per positive
 
 # --- Evaluation ---
 # Add this if you want to store additional metrics
