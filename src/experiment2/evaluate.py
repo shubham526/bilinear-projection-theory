@@ -11,18 +11,25 @@ import os
 import ir_datasets
 
 
-def load_qrels(qrels_path=None, use_ir_datasets=True):
+def load_qrels(qrels_path=None, use_ir_datasets=True, dataset_name="msmarco-passage"):
     """
     Load qrels file either from a file path or using ir_datasets.
 
     Args:
         qrels_path: Path to qrels file (only used if use_ir_datasets=False)
         use_ir_datasets: Whether to use ir_datasets or file path
-
-    Returns:
-        Dictionary in format {qid: {pid: relevance_score}}
+        dataset_name: Dataset name to determine which qrels to load
     """
     qrels = {}
+
+    # For non-MS MARCO datasets, always use file-based loading
+    if dataset_name != "msmarco-passage" and dataset_name != "msmarco":
+        use_ir_datasets = False
+        if not qrels_path:
+            if dataset_name == "car":
+                qrels_path = config.CAR_QRELS_FILE
+            elif dataset_name == "robust":
+                qrels_path = config.ROBUST_QRELS_FILE
 
     if use_ir_datasets:
         print("Loading qrels from ir_datasets...")
@@ -50,13 +57,13 @@ def load_qrels(qrels_path=None, use_ir_datasets=True):
 
     # File-based loading (fallback or if requested)
     if not qrels_path:
-        qrels_path = config.DEV_QRELS_PATH
+        print("Error: No qrels path provided for file-based loading")
+        return {}
 
     print(f"Loading qrels from file: {qrels_path}")
-
     try:
         with open(qrels_path, 'r') as f:
-            for line in f:
+            for line in tqdm(f, desc="Loading qrels from file"):
                 parts = line.strip().split()
                 if len(parts) >= 4:
                     qid, _, pid, relevance = parts[:4]
@@ -67,9 +74,8 @@ def load_qrels(qrels_path=None, use_ir_datasets=True):
         print(f"Error loading qrels from file: {e}")
         return {}
 
-    print(f"Loaded qrels for {len(qrels)} queries")
+    print(f"Loaded qrels for {len(qrels)} queries from file")
     return qrels
-
 
 def evaluate_on_final_eval_set(model, query_embeddings, passage_embeddings,
                                qid_to_idx, pid_to_idx, model_save_dir, model_name_key,
@@ -155,9 +161,18 @@ def evaluate_on_final_eval_set(model, query_embeddings, passage_embeddings,
         return None, None
 
 
-def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
-                          qid_to_idx, pid_to_idx, dev_query_to_candidates,
-                          run_file_path="run.dev.txt", use_ir_datasets=True):
+def evaluate_model_on_dev(
+        model,
+        query_embeddings,
+        passage_embeddings,
+        qid_to_idx,
+        pid_to_idx,
+        dev_query_to_candidates,
+        run_file_path="run.dev.txt",
+        use_ir_datasets=True,
+        qrels_path=None,
+        dataset_name="msmarco-passage"
+):
     """
     Evaluate model on dev set by scoring candidates and creating a TREC run file.
     Then evaluates using pytrec_eval.
@@ -171,6 +186,8 @@ def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
         dev_query_to_candidates: Dictionary mapping queries to candidates
         run_file_path: Path to write run file
         use_ir_datasets: Whether to use ir_datasets for qrels loading
+        :param dataset_name:
+        :param qrels_path:
     """
     model.eval()
 
@@ -237,10 +254,11 @@ def evaluate_model_on_dev(model, query_embeddings, passage_embeddings,
                     f_run.write(f"{qid}\tQ0\t{passage_id}\t{rank_idx + 1}\t{score:.6f}\tBilinearModel\n")
 
     # Evaluate with pytrec_eval
-    return evaluate_with_pytrec_eval(None, run, use_ir_datasets=use_ir_datasets)
+    return evaluate_with_pytrec_eval(qrels_path, run,
+                                     use_ir_datasets=use_ir_datasets,
+                                     dataset_name=dataset_name)
 
-
-def evaluate_with_pytrec_eval(qrels_path, run_dict, use_ir_datasets=True):
+def evaluate_with_pytrec_eval(qrels_path, run_dict, use_ir_datasets=True, dataset_name="msmarco-passage"):
     """
     Evaluate using pytrec_eval
 
@@ -253,7 +271,7 @@ def evaluate_with_pytrec_eval(qrels_path, run_dict, use_ir_datasets=True):
         (mrr_10, all_metrics_dict)
     """
     # Load qrels
-    qrels = load_qrels(qrels_path, use_ir_datasets=use_ir_datasets)
+    qrels = load_qrels(qrels_path, use_ir_datasets=use_ir_datasets, dataset_name=dataset_name)
 
     if not qrels:
         print("No qrels found. Cannot evaluate.")
