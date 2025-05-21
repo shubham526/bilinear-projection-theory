@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# data_loader_ir.py
+# data_loader.py
 """
 Data loading utilities using ir_datasets for MS MARCO passage ranking
 """
@@ -17,31 +17,51 @@ import io
 import config
 
 
-def load_embeddings_and_mappings():
+def load_embeddings_and_mappings(dataset_name=None):
     """
     Load embeddings and ID mappings from the paths specified in config.
+
+    Args:
+        dataset_name: Optional dataset name (car, robust, or None for default paths)
     """
-    print("Loading embeddings and ID mappings...")
+    print(f"Loading embeddings and ID mappings for {dataset_name or 'default'}...")
+
+    # Determine paths based on dataset
+    if dataset_name:
+        config_prefix = dataset_name.upper()
+        query_embeddings_path = getattr(config, f"{config_prefix}_QUERY_EMBEDDINGS_PATH",
+                                        config.QUERY_EMBEDDINGS_PATH)
+        passage_embeddings_path = getattr(config, f"{config_prefix}_PASSAGE_EMBEDDINGS_PATH",
+                                          config.PASSAGE_EMBEDDINGS_PATH)
+        query_id_to_idx_path = getattr(config, f"{config_prefix}_QUERY_ID_TO_IDX_PATH",
+                                       config.QUERY_ID_TO_IDX_PATH)
+        passage_id_to_idx_path = getattr(config, f"{config_prefix}_PASSAGE_ID_TO_IDX_PATH",
+                                         config.PASSAGE_ID_TO_IDX_PATH)
+    else:
+        query_embeddings_path = config.QUERY_EMBEDDINGS_PATH
+        passage_embeddings_path = config.PASSAGE_EMBEDDINGS_PATH
+        query_id_to_idx_path = config.QUERY_ID_TO_IDX_PATH
+        passage_id_to_idx_path = config.PASSAGE_ID_TO_IDX_PATH
 
     # Check if files exist
     required_files = [
-        (config.QUERY_EMBEDDINGS_PATH, "Query embeddings"),
-        (config.PASSAGE_EMBEDDINGS_PATH, "Passage embeddings"),
-        (config.QUERY_ID_TO_IDX_PATH, "Query ID to index mapping"),
-        (config.PASSAGE_ID_TO_IDX_PATH, "Passage ID to index mapping")
+        (query_embeddings_path, "Query embeddings"),
+        (passage_embeddings_path, "Passage embeddings"),
+        (query_id_to_idx_path, "Query ID to index mapping"),
+        (passage_id_to_idx_path, "Passage ID to index mapping")
     ]
 
     for file_path, description in required_files:
         if not os.path.exists(file_path):
             raise FileNotFoundError(
-                f"{description} not found at {file_path}. Please run preprocess_embeddings_ir_datasets.py first.")
+                f"{description} not found at {file_path}. Please run preprocess_embeddings.py first.")
 
-    query_embeddings = np.load(config.QUERY_EMBEDDINGS_PATH)
-    passage_embeddings = np.load(config.PASSAGE_EMBEDDINGS_PATH)
+    query_embeddings = np.load(query_embeddings_path)
+    passage_embeddings = np.load(passage_embeddings_path)
 
-    with open(config.QUERY_ID_TO_IDX_PATH, 'r') as f:
+    with open(query_id_to_idx_path, 'r') as f:
         qid_to_idx = json.load(f)
-    with open(config.PASSAGE_ID_TO_IDX_PATH, 'r') as f:
+    with open(passage_id_to_idx_path, 'r') as f:
         pid_to_idx = json.load(f)
 
     print(f"Loaded {query_embeddings.shape[0]} query embeddings.")
@@ -195,10 +215,16 @@ def download_top1000_dev(temp_dir=None):
         return None
 
 
-def load_dev_data_for_eval(qid_to_idx, pid_to_idx, use_ir_datasets=True):
+def load_dev_data_for_eval(qid_to_idx, pid_to_idx, use_ir_datasets=True, dataset_name=None):
     """
     Loads dev queries and their top-K candidates for evaluation.
     Can use either ir_datasets (preferred) or config-defined paths.
+
+    Args:
+        qid_to_idx: Query ID to index mapping
+        pid_to_idx: Passage ID to index mapping
+        use_ir_datasets: Whether to use ir_datasets for loading
+        dataset_name: Optional dataset name (msmarco-passage by default)
 
     Returns:
         A dictionary: {qid: [(pid, qidx, pidx), ...]}
@@ -315,9 +341,10 @@ def _load_dev_data_from_ir_datasets(qid_to_idx, pid_to_idx):
 
     return dict(dev_query_to_candidates)
 
+
 def create_msmarco_train_dataloader(query_embeddings=None, passage_embeddings=None,
                                     qid_to_idx=None, pid_to_idx=None,
-                                    limit_size=None, use_ir_datasets=True):
+                                    limit_size=None, use_ir_datasets=True, dataset_name=None):
     """
     Helper function to create train dataloader with loaded embeddings.
     Can use either ir_datasets or file-based loading.
@@ -329,6 +356,7 @@ def create_msmarco_train_dataloader(query_embeddings=None, passage_embeddings=No
         pid_to_idx: Optional pre-loaded passage ID to index mapping
         limit_size: Optional size limit for testing
         use_ir_datasets: Whether to use ir_datasets for loading
+        dataset_name: Optional dataset name for loading embeddings
 
     Returns:
         train_dataloader: DataLoader for training
@@ -339,7 +367,7 @@ def create_msmarco_train_dataloader(query_embeddings=None, passage_embeddings=No
     """
     # Load embeddings and mappings if not provided
     if query_embeddings is None or passage_embeddings is None or qid_to_idx is None or pid_to_idx is None:
-        query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
+        query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings(dataset_name)
 
     if use_ir_datasets:
         train_dataset = MSMARCOTriplesDataset(

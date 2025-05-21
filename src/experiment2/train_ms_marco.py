@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# main_train.py
+# train_ms_marco.py - Training script for MS MARCO passage ranking
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -8,6 +8,9 @@ import json
 from tqdm import tqdm
 import time
 import logging
+import random
+import numpy as np
+import argparse
 
 import config
 from models import get_model
@@ -17,44 +20,12 @@ from data_loader import (
     create_msmarco_train_dataloader
 )
 from evaluate import evaluate_model_on_dev
-
-
-def setup_logging(model_save_dir):
-    """Setup logging for training"""
-    os.makedirs(model_save_dir, exist_ok=True)
-
-    # Create a unique logger for this model
-    logger_name = f"model_{os.path.basename(model_save_dir)}_{int(time.time())}"
-    logger = logging.getLogger(logger_name)
-
-    # Important: Set propagate to False to avoid duplicate logs
-    logger.propagate = False
-
-    # Reset handlers if any exist already
-    if logger.handlers:
-        logger.handlers = []
-
-    # Set logging level
-    logger.setLevel(logging.INFO)
-
-    # Create file handler
-    file_handler = logging.FileHandler(os.path.join(model_save_dir, 'training.log'))
-    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
-
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-
-    return logger
+from utils import setup_logging
 
 
 def train_model(model_name_key, use_ir_datasets=True):
     """
-    Train a model specified by model_name_key.
+    Train a model specified by model_name_key on MS MARCO.
 
     Args:
         model_name_key: Key in config.MODEL_CONFIGS
@@ -62,24 +33,29 @@ def train_model(model_name_key, use_ir_datasets=True):
 
     Returns:
         best_mrr: Best MRR@10 achieved on dev set
+        final_results: Dictionary with training results
     """
     print(f"Starting training for model: {model_name_key}")
     model_config_params = config.MODEL_CONFIGS[model_name_key]
 
+    # Use MS MARCO dataset
+    dataset_name = "msmarco-passage"
+
     # Create save directory for this model
-    current_model_save_dir = os.path.join(config.MODEL_SAVE_DIR, model_name_key)
+    current_model_save_dir = os.path.join(config.MODEL_SAVE_DIR, dataset_name, model_name_key)
     os.makedirs(current_model_save_dir, exist_ok=True)
 
     # Setup logging
     logger = setup_logging(current_model_save_dir)
     logger.info(f"Starting training for model: {model_name_key}")
+    logger.info(f"Dataset: {dataset_name}")
     logger.info(f"Model config: {model_config_params}")
     logger.info(f"Device: {config.DEVICE}")
     logger.info(f"Using ir_datasets: {use_ir_datasets}")
 
     # Load data - load once and reuse
     logger.info("Loading embeddings and mappings...")
-    query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings()
+    query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx = load_embeddings_and_mappings(dataset_name)
 
     # Create train dataloader - pass embeddings to avoid reloading
     train_dataset_limit = None  # Set to a small number like 10000 for quick tests
@@ -91,7 +67,8 @@ def train_model(model_name_key, use_ir_datasets=True):
         qid_to_idx=qid_to_idx,
         pid_to_idx=pid_to_idx,
         limit_size=train_dataset_limit,
-        use_ir_datasets=use_ir_datasets
+        use_ir_datasets=use_ir_datasets,
+        dataset_name=dataset_name
     )
 
     # Load dev data for evaluation (load once)
@@ -99,7 +76,8 @@ def train_model(model_name_key, use_ir_datasets=True):
     dev_query_to_candidates = load_dev_data_for_eval(
         qid_to_idx,
         pid_to_idx,
-        use_ir_datasets=use_ir_datasets
+        use_ir_datasets=use_ir_datasets,
+        dataset_name=dataset_name
     )
 
     # Initialize model
@@ -132,6 +110,7 @@ def train_model(model_name_key, use_ir_datasets=True):
         # Save results with all metrics
         with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
             f_out.write(f"Model: {model_name_key}\n")
+            f_out.write(f"Dataset: {dataset_name}\n")
             f_out.write(f"Dev MRR@10: {mrr_at_10:.4f}\n")
             f_out.write(f"Additional Metrics:\n")
             for metric, value in all_metrics.items():
@@ -140,6 +119,7 @@ def train_model(model_name_key, use_ir_datasets=True):
         # Save detailed results as JSON
         results = {
             'model_name': model_name_key,
+            'dataset': dataset_name,
             'mrr_10': mrr_at_10,
             'all_metrics': all_metrics,
             'num_parameters': total_params
@@ -147,7 +127,7 @@ def train_model(model_name_key, use_ir_datasets=True):
         with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
             json.dump(results, f_out, indent=2)
 
-        return mrr_at_10
+        return mrr_at_10, results
 
     # Setup optimizer and loss function for trainable models
     optimizer = optim.AdamW(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY)
@@ -203,7 +183,7 @@ def train_model(model_name_key, use_ir_datasets=True):
                 logger.info(f"Epoch {epoch + 1}, Batch {i + 1}: Average loss = {avg_loss:.4f}")
 
         epoch_time = time.time() - epoch_start_time
-        avg_epoch_loss = total_loss / num_batches
+        avg_epoch_loss = total_loss / num_batches if num_batches > 0 else float('inf')
         logger.info(f"Epoch {epoch + 1} completed in {epoch_time:.2f}s")
         logger.info(f"Epoch {epoch + 1} Average Loss: {avg_epoch_loss:.4f}")
 
@@ -262,6 +242,7 @@ def train_model(model_name_key, use_ir_datasets=True):
     # Save final results with all metrics
     final_results = {
         'model_name': model_name_key,
+        'dataset': dataset_name,
         'best_dev_mrr': best_dev_mrr,
         'best_epoch': best_epoch,
         'final_loss': avg_epoch_loss,
@@ -274,6 +255,7 @@ def train_model(model_name_key, use_ir_datasets=True):
 
     with open(os.path.join(current_model_save_dir, "eval_results.txt"), "w") as f_out:
         f_out.write(f"Model: {model_name_key}\n")
+        f_out.write(f"Dataset: {dataset_name}\n")
         f_out.write(f"Best Dev MRR@10: {best_dev_mrr:.4f}\n")
         f_out.write(f"Best Epoch: {best_epoch}\n")
         f_out.write(f"Final Epoch Average Loss: {avg_epoch_loss:.4f}\n")
@@ -288,49 +270,25 @@ def train_model(model_name_key, use_ir_datasets=True):
     with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
         json.dump(final_results, f_out, indent=2)
 
-    # Perform final evaluation on the eval set with the best model
-    logger.info("\nPerforming final evaluation on MS MARCO eval set...")
-    try:
-        best_model_path = os.path.join(current_model_save_dir, "best_model.pth")
-        if os.path.exists(best_model_path):
-            logger.info(f"Loading best model from {best_model_path} for final evaluation...")
-            best_model = get_model(model_name_key, model_config_params).to(config.DEVICE)
-            best_model.load_state_dict(torch.load(best_model_path))
-            best_model.eval()
-
-            # Perform evaluation on the MS MARCO eval set (imported from evaluate.py)
-            from evaluate import evaluate_on_final_eval_set
-            eval_mrr, eval_metrics = evaluate_on_final_eval_set(
-                best_model, query_embeddings, passage_embeddings,
-                qid_to_idx, pid_to_idx, current_model_save_dir, model_name_key,
-                use_ir_datasets=use_ir_datasets
-            )
-
-            # Add eval results to the final results
-            final_results['eval_mrr'] = eval_mrr
-            if eval_metrics:
-                final_results['eval_metrics'] = eval_metrics
-
-            # Update the results.json file with eval results
-            with open(os.path.join(current_model_save_dir, "results.json"), "w") as f_out:
-                json.dump(final_results, f_out, indent=2)
-
-            logger.info(f"Updated results.json with eval set performance metrics")
-    except Exception as e:
-        logger.error(f"Error during final eval set evaluation: {e}")
-        logger.error("Continuing without eval set evaluation")
-
-
     return best_dev_mrr, final_results
 
 
 def main():
-    """Main function to run training for all configured models"""
+    """Main function to run training for MS MARCO models"""
+    # Set random seeds for reproducibility
+    seed = 42
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
     # Ensure model save directory exists
-    os.makedirs(config.MODEL_SAVE_DIR, exist_ok=True)
+    dataset_name = "msmarco-passage"
+    os.makedirs(os.path.join(config.MODEL_SAVE_DIR, dataset_name), exist_ok=True)
 
     # Parse command line arguments
-    import argparse
     parser = argparse.ArgumentParser(description='Train MS MARCO passage ranking models')
     parser.add_argument('--use-files', action='store_true', help='Use file-based loading instead of ir_datasets')
     parser.add_argument('--models', nargs='+', help='Specific model keys to train (default: all models)')
@@ -343,8 +301,9 @@ def main():
     print(f"PyTorch version: {torch.__version__}")
     print(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
-        print(f"CUDA device: {torch.cuda.get_device_name()}")
+        print(f"CUDA device: {torch.cuda.get_device_name(0)}")
     print(f"Device: {config.DEVICE}")
+    print(f"Dataset: MS MARCO Passage")
     print(f"Using ir_datasets: {use_ir_datasets}")
 
     # Models to run
@@ -362,27 +321,28 @@ def main():
     for model_key in models_to_run:
         if model_key in config.MODEL_CONFIGS:
             print(f"\n{'=' * 50}")
-            print(f"Training {model_key}")
+            print(f"Training {model_key} on MS MARCO")
             print(f"{'=' * 50}")
 
             try:
-                best_mrr, model_results = train_model(model_key, use_ir_datasets=use_ir_datasets)
+                best_mrr, model_results = train_model(
+                    model_key,
+                    use_ir_datasets=use_ir_datasets
+                )
 
-                # Store a more complete set of results
+                # Store results
                 all_results[model_key] = {
                     'dev_mrr': best_mrr,
-                    'eval_mrr': model_results.get('eval_mrr', 'N/A')
+                    'dataset': 'msmarco-passage'
                 }
 
                 print(f"Completed training {model_key}: Dev MRR@10 = {best_mrr:.4f}")
-                if 'eval_mrr' in model_results and model_results['eval_mrr'] is not None:
-                    print(f"Eval MRR@10 = {model_results['eval_mrr']:.4f}")
 
             except Exception as e:
                 print(f"Error training {model_key}: {e}")
                 import traceback
                 traceback.print_exc()
-                all_results[model_key] = {'dev_mrr': 0.0, 'eval_mrr': 'N/A'}
+                all_results[model_key] = {'dev_mrr': 0.0, 'dataset': 'msmarco-passage'}
         else:
             print(f"Warning: Model key '{model_key}' not found in MODEL_CONFIGS. Skipping.")
 
@@ -390,15 +350,15 @@ def main():
     print(f"\n{'=' * 50}")
     print("FINAL RESULTS SUMMARY")
     print(f"{'=' * 50}")
-    print(f"{'Model':<25} {'Dev MRR@10':<15} {'Eval MRR@10':<15}")
-    print(f"{'-' * 55}")
+    print(f"Dataset: MS MARCO Passage")
+    print(f"{'Model':<25} {'Dev MRR@10':<15}")
+    print(f"{'-' * 40}")
     for model_name, results in all_results.items():
         dev_mrr = results.get('dev_mrr', 0.0)
-        eval_mrr = results.get('eval_mrr', 'N/A')
-        print(f"{model_name:<25} {dev_mrr:<15.4f} {eval_mrr if isinstance(eval_mrr, str) else eval_mrr:.4f}")
+        print(f"{model_name:<25} {dev_mrr:<15.4f}")
 
     # Save overall summary
-    summary_path = os.path.join(config.MODEL_SAVE_DIR, "summary_results.json")
+    summary_path = os.path.join(config.MODEL_SAVE_DIR, "msmarco_passage_summary_results.json")
     with open(summary_path, "w") as f:
         json.dump(all_results, f, indent=2)
 
