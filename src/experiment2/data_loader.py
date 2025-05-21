@@ -17,55 +17,69 @@ import io
 import config
 
 
-def load_embeddings_and_mappings(dataset_name=None):
+# In data_loader.py, update the load_embeddings_and_mappings function
+
+def load_embeddings_and_mappings(dataset_name=None, query_emb_path=None, passage_emb_path=None,
+                                 qid_map_path=None, pid_map_path=None):
     """
     Load embeddings and ID mappings from the paths specified in config.
 
     Args:
         dataset_name: Optional dataset name (car, robust, or None for default paths)
+        query_emb_path, passage_emb_path, qid_map_path, pid_map_path: Optional explicit paths
     """
     print(f"Loading embeddings and ID mappings for {dataset_name or 'default'}...")
 
     # Determine paths based on dataset
-    if dataset_name:
-        config_prefix = dataset_name.upper()
-        query_embeddings_path = getattr(config, f"{config_prefix}_QUERY_EMBEDDINGS_PATH",
-                                        config.QUERY_EMBEDDINGS_PATH)
-        passage_embeddings_path = getattr(config, f"{config_prefix}_PASSAGE_EMBEDDINGS_PATH",
-                                          config.PASSAGE_EMBEDDINGS_PATH)
-        query_id_to_idx_path = getattr(config, f"{config_prefix}_QUERY_ID_TO_IDX_PATH",
-                                       config.QUERY_ID_TO_IDX_PATH)
-        passage_id_to_idx_path = getattr(config, f"{config_prefix}_PASSAGE_ID_TO_IDX_PATH",
-                                         config.PASSAGE_ID_TO_IDX_PATH)
-    else:
-        query_embeddings_path = config.QUERY_EMBEDDINGS_PATH
-        passage_embeddings_path = config.PASSAGE_EMBEDDINGS_PATH
-        query_id_to_idx_path = config.QUERY_ID_TO_IDX_PATH
-        passage_id_to_idx_path = config.PASSAGE_ID_TO_IDX_PATH
+    if not query_emb_path:
+        if dataset_name:
+            config_prefix = dataset_name.upper()
+            query_emb_path = getattr(config, f"{config_prefix}_QUERY_EMBEDDINGS_PATH",
+                                     config.QUERY_EMBEDDINGS_PATH)
+        else:
+            query_emb_path = config.QUERY_EMBEDDINGS_PATH
+
+    if not passage_emb_path:
+        if dataset_name:
+            config_prefix = dataset_name.upper()
+            passage_emb_path = getattr(config, f"{config_prefix}_PASSAGE_EMBEDDINGS_PATH",
+                                       config.PASSAGE_EMBEDDINGS_PATH)
+        else:
+            passage_emb_path = config.PASSAGE_EMBEDDINGS_PATH
+
+    if not qid_map_path:
+        if dataset_name:
+            config_prefix = dataset_name.upper()
+            qid_map_path = getattr(config, f"{config_prefix}_QUERY_ID_TO_IDX_PATH",
+                                   config.QUERY_ID_TO_IDX_PATH)
+        else:
+            qid_map_path = config.QUERY_ID_TO_IDX_PATH
+
+    if not pid_map_path:
+        if dataset_name:
+            config_prefix = dataset_name.upper()
+            pid_map_path = getattr(config, f"{config_prefix}_PASSAGE_ID_TO_IDX_PATH",
+                                   config.PASSAGE_ID_TO_IDX_PATH)
+        else:
+            pid_map_path = config.PASSAGE_ID_TO_IDX_PATH
 
     # Check if files exist
-    required_files = [
-        (query_embeddings_path, "Query embeddings"),
-        (passage_embeddings_path, "Passage embeddings"),
-        (query_id_to_idx_path, "Query ID to index mapping"),
-        (passage_id_to_idx_path, "Passage ID to index mapping")
-    ]
-
-    for file_path, description in required_files:
+    for file_path in [query_emb_path, passage_emb_path, qid_map_path, pid_map_path]:
         if not os.path.exists(file_path):
-            raise FileNotFoundError(
-                f"{description} not found at {file_path}. Please run preprocess_embeddings.py first.")
+            raise FileNotFoundError(f"Required file not found: {file_path}")
 
-    query_embeddings = np.load(query_embeddings_path)
-    passage_embeddings = np.load(passage_embeddings_path)
+    # Load embeddings and ensure they're float32
+    query_embeddings = np.load(query_emb_path).astype(np.float32)
+    passage_embeddings = np.load(passage_emb_path).astype(np.float32)
 
-    with open(query_id_to_idx_path, 'r') as f:
+    with open(qid_map_path, 'r') as f:
         qid_to_idx = json.load(f)
-    with open(passage_id_to_idx_path, 'r') as f:
+    with open(pid_map_path, 'r') as f:
         pid_to_idx = json.load(f)
 
-    print(f"Loaded {query_embeddings.shape[0]} query embeddings.")
-    print(f"Loaded {passage_embeddings.shape[0]} passage embeddings.")
+    print(f"Loaded {query_embeddings.shape[0]} query embeddings (dtype: {query_embeddings.dtype})")
+    print(f"Loaded {passage_embeddings.shape[0]} passage embeddings (dtype: {passage_embeddings.dtype})")
+
     return query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx
 
 

@@ -7,7 +7,6 @@ import os
 import json
 from tqdm import tqdm
 import time
-import logging
 import random
 import numpy as np
 import argparse
@@ -18,6 +17,12 @@ from data_loader import load_embeddings_and_mappings
 from evaluate import evaluate_model_on_dev
 from torch.utils.data import Dataset, DataLoader
 from utils import load_folds, setup_logging
+
+def ensure_tensor_dtype(tensor, dtype=torch.float32):
+    """Ensure tensor is of the specified data type."""
+    if isinstance(tensor, torch.Tensor) and tensor.dtype != dtype:
+        return tensor.to(dtype)
+    return tensor
 
 
 def load_training_triples(dataset_name, fold_idx, triples_dir=None):
@@ -99,6 +104,9 @@ def create_dataloader_from_triples(training_triples, query_embeddings, passage_e
     Returns:
         torch.utils.data.DataLoader: DataLoader for training
     """
+    # First, ensure embeddings are float32
+    query_embeddings = ensure_tensor_dtype(query_embeddings)
+    passage_embeddings = ensure_tensor_dtype(passage_embeddings)
 
     class TrainingTriplesDataset(Dataset):
         def __init__(self, triples, query_embeddings, passage_embeddings):
@@ -111,10 +119,11 @@ def create_dataloader_from_triples(training_triples, query_embeddings, passage_e
 
         def __getitem__(self, idx):
             q_idx, pos_idx, neg_idx = self.triples[idx]
+            # Ensure we return float32 tensors
             return (
-                self.query_embeddings[q_idx],
-                self.passage_embeddings[pos_idx],
-                self.passage_embeddings[neg_idx]
+                ensure_tensor_dtype(self.query_embeddings[q_idx]),
+                ensure_tensor_dtype(self.passage_embeddings[pos_idx]),
+                ensure_tensor_dtype(self.passage_embeddings[neg_idx])
             )
 
     dataset = TrainingTriplesDataset(training_triples, query_embeddings, passage_embeddings)
@@ -191,6 +200,7 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
     # Initialize model
     model = get_model(model_name_key, model_config_params).to(config.DEVICE)
     logger.info(f"Model architecture:\n{model}")
+    model.apply(lambda m: m.to(torch.float32) if isinstance(m, nn.Module) else None)
 
     # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
@@ -274,10 +284,10 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
         progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch + 1}/{config.NUM_EPOCHS}")
 
         for i, (q_embeds, pos_p_embeds, neg_p_embeds) in enumerate(progress_bar):
-            # Move data to device
-            q_embeds = q_embeds.to(config.DEVICE, non_blocking=True)
-            pos_p_embeds = pos_p_embeds.to(config.DEVICE, non_blocking=True)
-            neg_p_embeds = neg_p_embeds.to(config.DEVICE, non_blocking=True)
+            # Move data to device and ensure float32
+            q_embeds = ensure_tensor_dtype(q_embeds.to(config.DEVICE, non_blocking=True))
+            pos_p_embeds = ensure_tensor_dtype(pos_p_embeds.to(config.DEVICE, non_blocking=True))
+            neg_p_embeds = ensure_tensor_dtype(neg_p_embeds.to(config.DEVICE, non_blocking=True))
 
             optimizer.zero_grad()
 

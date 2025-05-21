@@ -34,15 +34,23 @@ class LowRankBilinearModel(nn.Module):
         self.rank = config["rank"]
 
         # P and Q matrices for W = P @ Q.T
-        self.P = nn.Parameter(torch.Tensor(self.embedding_dim, self.rank))
-        self.Q = nn.Parameter(torch.Tensor(self.embedding_dim, self.rank))
+        # Explicitly set dtype to float32
+        self.P = nn.Parameter(torch.Tensor(self.embedding_dim, self.rank).to(torch.float32))
+        self.Q = nn.Parameter(torch.Tensor(self.embedding_dim, self.rank).to(torch.float32))
         self.reset_parameters()
 
     def reset_parameters(self):
+        # Ensure initialization also uses float32
         nn.init.xavier_uniform_(self.P)
         nn.init.xavier_uniform_(self.Q)
 
     def forward(self, query_embed, passage_embed):
+        # Ensure input tensors are float32
+        if query_embed.dtype != torch.float32:
+            query_embed = query_embed.to(torch.float32)
+        if passage_embed.dtype != torch.float32:
+            passage_embed = passage_embed.to(torch.float32)
+
         # Compute s = (P^T q)^T (Q^T d) which is equivalent to q^T P Q^T d
         # More efficient factorized computation:
         query_proj = torch.matmul(query_embed, self.P)  # (batch_size, rank)
@@ -50,18 +58,23 @@ class LowRankBilinearModel(nn.Module):
         scores = torch.sum(query_proj * passage_proj, dim=1)  # (batch_size,)
         return scores
 
-
 class FullRankBilinearModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.embedding_dim = config["embedding_dim"]
-        self.W = nn.Parameter(torch.Tensor(self.embedding_dim, self.embedding_dim))
+        self.W = nn.Parameter(torch.Tensor(self.embedding_dim, self.embedding_dim).to(torch.float32))
         self.reset_parameters()
 
     def reset_parameters(self):
         nn.init.xavier_uniform_(self.W)
 
     def forward(self, query_embed, passage_embed):
+        # Ensure input tensors are float32
+        if query_embed.dtype != torch.float32:
+            query_embed = query_embed.to(torch.float32)
+        if passage_embed.dtype != torch.float32:
+            passage_embed = passage_embed.to(torch.float32)
+
         # Compute s = q^T W d
         q_W = torch.matmul(query_embed, self.W)  # (batch_size, embedding_dim)
         scores = torch.sum(q_W * passage_embed, dim=1)  # (batch_size,)
