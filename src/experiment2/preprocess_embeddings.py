@@ -1017,6 +1017,8 @@ def main():
                         choices=['mean', 'max', 'position', 'importance', 'first_chunk', 'hybrid'],
                         default='hybrid',
                         help='Method to aggregate chunk embeddings (default: hybrid)')
+    parser.add_argument('--embedding-dir', type=str, default=None,
+                        help='Directory to store embeddings (overrides config.EMBEDDING_DIR)')
 
     args = parser.parse_args()
 
@@ -1024,6 +1026,36 @@ def main():
     dataset_name = args.dataset
     model_name = args.model_name if args.model_name else getattr(config, 'EMBEDDING_MODEL_NAME', config.SBERT_MODEL_NAME)
     device = args.device
+
+    # Override embedding directory if specified
+    if args.embedding_dir:
+        original_embedding_dir = config.EMBEDDING_DIR
+        config.EMBEDDING_DIR = args.embedding_dir
+        os.makedirs(config.EMBEDDING_DIR, exist_ok=True)
+        print(f"Created embedding directory: {config.EMBEDDING_DIR}")
+
+
+
+        # Also update all dependent paths
+        for dataset_prefix in ['', 'CAR_', 'ROBUST_']:
+            if hasattr(config, f"{dataset_prefix}QUERY_EMBEDDINGS_PATH"):
+                setattr(config, f"{dataset_prefix}QUERY_EMBEDDINGS_PATH",
+                        getattr(config, f"{dataset_prefix}QUERY_EMBEDDINGS_PATH").replace(original_embedding_dir,
+                                                                                          args.embedding_dir))
+            if hasattr(config, f"{dataset_prefix}PASSAGE_EMBEDDINGS_PATH"):
+                setattr(config, f"{dataset_prefix}PASSAGE_EMBEDDINGS_PATH",
+                        getattr(config, f"{dataset_prefix}PASSAGE_EMBEDDINGS_PATH").replace(original_embedding_dir,
+                                                                                            args.embedding_dir))
+            if hasattr(config, f"{dataset_prefix}QUERY_ID_TO_IDX_PATH"):
+                setattr(config, f"{dataset_prefix}QUERY_ID_TO_IDX_PATH",
+                        getattr(config, f"{dataset_prefix}QUERY_ID_TO_IDX_PATH").replace(original_embedding_dir,
+                                                                                         args.embedding_dir))
+            if hasattr(config, f"{dataset_prefix}PASSAGE_ID_TO_IDX_PATH"):
+                setattr(config, f"{dataset_prefix}PASSAGE_ID_TO_IDX_PATH",
+                        getattr(config, f"{dataset_prefix}PASSAGE_ID_TO_IDX_PATH").replace(original_embedding_dir,
+                                                                                           args.embedding_dir))
+
+        print(f"Embedding directory set to: {config.EMBEDDING_DIR} (from command-line argument)")
 
     # Handle verify-only mode
     if args.verify_only:
