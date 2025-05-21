@@ -8,7 +8,7 @@ DATASET_NAME = "msmarco-passage"  # Default dataset if not specified
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "/home/user/sisap2025/embeddings/sbert_all-mpnet-base-v2/robust/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/sisap2025/embeddings/bert-base-uncased/robust/"  # Parent directory for fixed embeddings
 
 # Standard MS MARCO paths
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
@@ -40,9 +40,19 @@ ROBUST_QRELS_FILE = "/home/user/sisap2025/data/robust/qrels.txt"  # Update this 
 ROBUST_RUN_FILE = "/home/user/sisap2025/data/robust/run.txt"  # Update this path
 ROBUST_FOLDS_FILE = "/home/user/sisap2025/data/robust/folds.json"  # Update this path
 
-# --- Model Configs ---
-# Assuming SBERT 'all-mpnet-base-v2' which has 768 dimensions
+ROBUST_USE_CHUNKING = True
+ROBUST_CHUNK_SIZE = 512
+ROBUST_CHUNK_STRIDE = 256
+ROBUST_CHUNK_AGGREGATION = "hybrid"
+
+# --- Model for preprocessing ---
+EMBEDDING_MODEL_NAME = 'bert-base-uncased'  # or any HuggingFace model name
 EMBEDDING_DIM = 768
+# SBERT_MODEL_NAME = 'all-mpnet-base-v2'  # The SBERT model to use for embedding generation
+
+
+
+# --- Model Configs ---
 
 MODEL_CONFIGS = {
     "dot_product": {
@@ -97,6 +107,3 @@ METRICS_TO_EVALUATE = [
     'map',
     'recip_rank'
 ]
-
-# --- SBERT Model for preprocessing ---
-SBERT_MODEL_NAME = 'all-mpnet-base-v2'  # The SBERT model to use for embedding generation
