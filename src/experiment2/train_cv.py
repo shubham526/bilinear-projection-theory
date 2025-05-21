@@ -20,23 +20,22 @@ from torch.utils.data import Dataset, DataLoader
 from utils import load_folds, setup_logging
 
 
-
 def load_training_triples(dataset_name, fold_idx, triples_dir=None):
     """
     Load pre-created training triples for a specific fold.
-
-    Args:
-        dataset_name: Name of the dataset (car or robust)
-        fold_idx: Fold index to use
-        triples_dir: Directory containing triples files (default: data/cv_triples)
-
-    Returns:
-        list: List of training triples (query_idx, pos_idx, neg_idx)
     """
     if triples_dir is None:
         triples_dir = 'data/cv_triples'
 
-    triples_path = os.path.join(triples_dir, dataset_name, f"fold_{fold_idx}_triples.pt")
+    # Fix the path construction to avoid duplicate dataset names
+    # Check if dataset name is already the last component of the path
+    path_components = os.path.normpath(triples_dir).split(os.sep)
+    if path_components and path_components[-1] == dataset_name:
+        # Dataset name already in path, don't add it again
+        triples_path = os.path.join(triples_dir, f"fold_{fold_idx}_triples.pt")
+    else:
+        # Dataset name not in path, add it
+        triples_path = os.path.join(triples_dir, dataset_name, f"fold_{fold_idx}_triples.pt")
 
     if not os.path.exists(triples_path):
         raise FileNotFoundError(f"Training triples file not found: {triples_path}. "
@@ -64,7 +63,15 @@ def load_test_data(dataset_name, fold_idx, triples_dir=None):
     if triples_dir is None:
         triples_dir = 'data/cv_triples'
 
-    test_data_path = os.path.join(triples_dir, dataset_name, f"fold_{fold_idx}_test_data.json")
+    # Fix the path construction to avoid duplicate dataset names
+    # Check if dataset name is already the last component of the path
+    path_components = os.path.normpath(triples_dir).split(os.sep)
+    if path_components and path_components[-1] == dataset_name:
+        # Dataset name already in path, don't add it again
+        test_data_path = os.path.join(triples_dir, f"fold_{fold_idx}_test_data.json")
+    else:
+        # Dataset name not in path, add it
+        test_data_path = os.path.join(triples_dir, dataset_name, f"fold_{fold_idx}_test_data.json")
 
     if not os.path.exists(test_data_path):
         raise FileNotFoundError(f"Test data file not found: {test_data_path}. "
@@ -123,7 +130,7 @@ def create_dataloader_from_triples(training_triples, query_embeddings, passage_e
 
 
 def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
-                   query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
+                   query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx, main_metric_name,
                    triples_dir=None):
     """
     Train a model using cross-validation for a specific fold.
@@ -143,6 +150,7 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
         best_metric: Best evaluation metric achieved
         final_results: Dictionary with training results
     """
+
     model_config_params = config.MODEL_CONFIGS[model_name_key]
 
     # Create save directory for this model and fold
@@ -190,17 +198,28 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
     logger.info(f"Total parameters: {total_params:,}")
     logger.info(f"Trainable parameters: {trainable_params:,}")
 
+    # Determine the correct qrels path based on dataset
+    if dataset_name == "car":
+        qrels_path = config.CAR_QRELS_FILE
+    elif dataset_name == "robust":
+        qrels_path = config.ROBUST_QRELS_FILE
+    else:
+        qrels_path = None  # For MS MARCO, can use ir_datasets
+
     # Handle dot product model (no training needed)
     if model_config_params["type"] == "dot_product":
         logger.info("Dot product model requires no training. Evaluating directly.")
         run_file_path = os.path.join(current_model_save_dir, f"run.test.{model_name_key}.txt")
+        # Updated to pass dataset_name and appropriate qrels path
         metric_at_k, all_metrics = evaluate_model_on_dev(
             model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
-            test_query_to_candidates, run_file_path=run_file_path
+            test_query_to_candidates, run_file_path=run_file_path,
+            use_ir_datasets=(dataset_name == "msmarco-passage" or dataset_name == "msmarco"),
+            qrels_path=qrels_path,
+            dataset_name=dataset_name
         )
 
         # Use appropriate main metric based on dataset
-        main_metric_name = "ndcg_cut_10" if dataset_name == "car" else "mrr_10"
         main_metric = all_metrics.get(main_metric_name, metric_at_k)
 
         logger.info(f"Dot Product Test {main_metric_name.upper()}: {main_metric:.4f}")
@@ -239,9 +258,6 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
     loss_fn = nn.MarginRankingLoss(margin=config.MARGIN).to(config.DEVICE)
     logger.info(f"Optimizer: AdamW (lr={config.LEARNING_RATE}, weight_decay={config.WEIGHT_DECAY})")
     logger.info(f"Loss function: MarginRankingLoss (margin={config.MARGIN})")
-
-    # Use appropriate main metric based on dataset
-    main_metric_name = "ndcg_cut_10" if dataset_name == "car" else "mrr_10"
 
     best_metric = 0.0
     best_epoch = 0
@@ -298,9 +314,13 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
         # Evaluate on test set
         logger.info(f"Evaluating on test set after epoch {epoch + 1}...")
         run_file_path = os.path.join(current_model_save_dir, f"run.test.epoch_{epoch + 1}.txt")
+        # Pass dataset name and appropriate qrels path
         metric_at_k, all_metrics = evaluate_model_on_dev(
             model, query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx,
-            test_query_to_candidates, run_file_path=run_file_path
+            test_query_to_candidates, run_file_path=run_file_path,
+            use_ir_datasets=(dataset_name == "msmarco-passage" or dataset_name == "msmarco"),
+            qrels_path=qrels_path,
+            dataset_name=dataset_name
         )
 
         # Get the main metric for this dataset
@@ -496,11 +516,9 @@ def main():
                     passage_embeddings,
                     qid_to_idx,
                     pid_to_idx,
+                    main_metric_name=main_metric_name,
                     triples_dir=triples_dir
                 )
-
-                # Use appropriate main metric based on dataset
-                main_metric_name = "ndcg_cut_10" if dataset_name == "car" else "mrr_10"
 
                 model_results[fold_idx] = {
                     main_metric_name: best_metric,
@@ -515,9 +533,6 @@ def main():
                 import traceback
                 traceback.print_exc()
                 model_results[fold_idx] = {main_metric_name: 0.0}
-
-        # Calculate average metrics across folds
-        main_metric_name = "ndcg_cut_10" if dataset_name == "car" else "mrr_10"
 
         if model_results:
             metrics_sum = sum(results.get(main_metric_name, 0.0) for results in model_results.values())
@@ -538,8 +553,6 @@ def main():
     print(f"{'=' * 50}")
     print(f"Dataset: {dataset_name}")
 
-    # Use appropriate main metric based on dataset
-    main_metric_name = "ndcg_cut_10" if dataset_name == "car" else "mrr_10"
     metric_display = main_metric_name.upper()
 
     print(f"{'Model':<25} {'Avg ' + metric_display:<15} {'Folds':<10}")
