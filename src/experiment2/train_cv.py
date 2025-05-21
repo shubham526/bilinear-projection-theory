@@ -343,6 +343,13 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
             # Save model state dict
             torch.save(model.state_dict(), os.path.join(current_model_save_dir, f"best_model.pth"))
 
+            # Save the best run file
+            best_run_file_path = os.path.join(current_model_save_dir, f"run.test.best_model.txt")
+            # Copy the current run file to the best run file
+            import shutil
+            shutil.copy2(run_file_path, best_run_file_path)
+            logger.info(f"Saved best model run file to {best_run_file_path}")
+
             # Save model config and metrics
             save_dict = {
                 'model_state_dict': model.state_dict(),

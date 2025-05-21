@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# preprocess_embeddings.py
 import os
 import numpy as np
 import json
@@ -7,12 +5,10 @@ import ir_datasets
 import requests
 import tarfile
 import io
-from sentence_transformers import SentenceTransformer
 from tqdm import tqdm
 import argparse
 import time
-
-# Import config for output paths
+import torch
 try:
     import config
 except ImportError:
@@ -497,18 +493,162 @@ def load_texts(unique_qids, unique_pids, dataset_name, dataset_parts):
     return qid_to_text, pid_to_text
 
 
-def generate_embeddings(qid_to_text, pid_to_text, model_name=None, device=None):
+def generate_chunked_embeddings(doc_text, tokenizer, model, max_length=512, stride=256,
+                                device="cuda", pooling="mean", aggregation="hybrid"):
     """
-    Generate embeddings for all queries and passages.
+    Generate embeddings for a long document by chunking it and then aggregating the embeddings.
+
+    Args:
+        doc_text: The full document text
+        tokenizer: HuggingFace tokenizer
+        model: The embedding model
+        max_length: Maximum chunk length
+        stride: Overlap between chunks
+        device: Device to run the model on
+        pooling: Pooling strategy ('mean' or 'cls')
+        aggregation: Method to aggregate chunk embeddings
+
+    Returns:
+        A single embedding vector representing the document
+    """
+    # Tokenize the entire document
+    tokens = tokenizer.tokenize(doc_text)
+
+    # If document is short enough, no need for chunking
+    if len(tokens) <= max_length - 2:  # Account for [CLS] and [SEP]
+        inputs = tokenizer(doc_text, padding=True, truncation=True,
+                           return_tensors="pt", max_length=max_length).to(device)
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        if pooling == "mean":
+            # Mean pooling
+            attention_mask = inputs["attention_mask"]
+            token_embeddings = outputs.last_hidden_state
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            embedding = torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+                torch.sum(input_mask_expanded, 1), min=1e-9)
+        else:
+            # CLS pooling
+            embedding = outputs.last_hidden_state[:, 0]
+
+        return embedding.cpu().numpy()[0]
+
+    # For long documents, create overlapping chunks
+    chunk_embeddings = []
+
+    # Process document in chunks with overlap
+    for i in range(0, len(tokens), stride):
+        # Extract chunk tokens
+        chunk_tokens = tokens[i:i + max_length - 2]  # Account for [CLS] and [SEP]
+        if not chunk_tokens:
+            continue
+
+        # Convert tokens back to text
+        chunk_text = tokenizer.convert_tokens_to_string(chunk_tokens)
+
+        # Embed the chunk
+        inputs = tokenizer(chunk_text, padding=True, truncation=True,
+                           return_tensors="pt", max_length=max_length).to(device)
+
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        if pooling == "mean":
+            # Mean pooling
+            attention_mask = inputs["attention_mask"]
+            token_embeddings = outputs.last_hidden_state
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            chunk_embed = torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(
+                torch.sum(input_mask_expanded, 1), min=1e-9)
+        else:
+            # CLS pooling
+            chunk_embed = outputs.last_hidden_state[:, 0]
+
+        chunk_embeddings.append(chunk_embed.cpu().numpy()[0])
+
+    # Return aggregated embeddings
+    return aggregate_chunk_embeddings(chunk_embeddings, aggregation)
+
+
+def aggregate_chunk_embeddings(chunks, method="hybrid"):
+    """
+    Aggregate chunk embeddings using various strategies.
+
+    Args:
+        chunks: List of chunk embeddings
+        method: Aggregation method
+
+    Returns:
+        A single embedding vector
+    """
+    if not chunks:
+        # Return zeros array matching embedding dimension (usually 768)
+        if hasattr(chunks, 'shape') and len(chunks.shape) > 0:
+            return np.zeros(chunks.shape[1])
+        return np.zeros(768)
+
+    # Different aggregation strategies
+    if method == "mean":
+        # Simple mean pooling
+        return np.mean(chunks, axis=0)
+
+    elif method == "max":
+        # Max pooling across chunks
+        return np.max(chunks, axis=0)
+
+    elif method == "position":
+        # Weight chunks by position (early chunks get higher weight)
+        decay_factor = 0.8
+        weights = np.array([decay_factor ** i for i in range(len(chunks))])
+        weights = weights / weights.sum()  # Normalize
+        return np.sum([w * emb for w, emb in zip(weights, chunks)], axis=0)
+
+    elif method == "importance":
+        # Weight chunks by their L2 norm (proxy for information density)
+        norms = np.array([np.linalg.norm(emb) for emb in chunks])
+        if np.sum(norms) == 0:
+            return np.mean(chunks, axis=0)  # Fallback
+        weights = norms / np.sum(norms)
+        return np.sum([w * emb for w, emb in zip(weights, chunks)], axis=0)
+
+    elif method == "first_chunk":
+        # Just use the first chunk
+        return chunks[0]
+
+    elif method == "hybrid":
+        # Combine multiple methods
+        methods = []
+        # Mean embedding
+        methods.append(np.mean(chunks, axis=0))
+        # Max embedding
+        methods.append(np.max(chunks, axis=0))
+        # First chunk (often contains title/abstract)
+        methods.append(chunks[0])
+        # Last chunk (often contains conclusion)
+        methods.append(chunks[-1])
+        # Return average of all methods
+        return np.mean(methods, axis=0)
+
+    else:
+        # Default to mean pooling
+        return np.mean(chunks, axis=0)
+
+
+def generate_embeddings(qid_to_text, pid_to_text, model_name=None, device=None, dataset_name=None):
+    """
+    Generate embeddings for all queries and passages using the specified model.
+    Supports SBERT, HuggingFace transformers, and more.
     """
     if model_name is None:
-        model_name = config.SBERT_MODEL_NAME
+        model_name = getattr(config, 'EMBEDDING_MODEL_NAME', config.SBERT_MODEL_NAME)
 
     if device is None:
         device = config.DEVICE
 
-    print(f"Loading SBERT model: {model_name}...")
-    sbert_model = SentenceTransformer(model_name, device=device)
+    print(f"Generating embeddings using model: {model_name}")
+    print(f"Using device: {device}")
 
     # Sort IDs for consistent indexing
     sorted_qids = sorted(list(qid_to_text.keys()))
@@ -522,25 +662,195 @@ def generate_embeddings(qid_to_text, pid_to_text, model_name=None, device=None):
     query_texts_list = [qid_to_text[qid] for qid in sorted_qids]
     passage_texts_list = [pid_to_text[pid] for pid in sorted_pids]
 
-    # Generate query embeddings
-    print(f"Encoding {len(query_texts_list)} query texts...")
-    query_embeddings_np = sbert_model.encode(
-        query_texts_list,
-        batch_size=256,
-        show_progress_bar=True,
-        convert_to_numpy=True,
-        normalize_embeddings=False  # Keep raw embeddings
-    )
+    # Get chunking parameters for ROBUST documents
+    chunk_size = getattr(config, 'ROBUST_CHUNK_SIZE', 512)
+    chunk_stride = getattr(config, 'ROBUST_CHUNK_STRIDE', 256)
+    chunk_aggregation = getattr(config, 'ROBUST_CHUNK_AGGREGATION', 'hybrid')
+    is_robust = hasattr(config, 'ROBUST_QUERIES_FILE')
 
-    # Generate passage embeddings
-    print(f"Encoding {len(passage_texts_list)} document/passage texts...")
-    passage_embeddings_np = sbert_model.encode(
-        passage_texts_list,
-        batch_size=128,  # Smaller batch size for longer passages
-        show_progress_bar=True,
-        convert_to_numpy=True,
-        normalize_embeddings=False  # Keep raw embeddings
-    )
+    # APPROACH 1: SENTENCE TRANSFORMERS (SBERT)
+    if "sentence-transformers" in model_name or any(
+            name in model_name for name in ["all-mpnet", "all-MiniLM", "all-distilroberta"]):
+        print(f"Using Sentence Transformers approach with model: {model_name}")
+        from sentence_transformers import SentenceTransformer
+
+        sbert_model = SentenceTransformer(model_name, device=device)
+
+        # Generate query embeddings
+        print(f"Encoding {len(query_texts_list)} query texts...")
+        query_embeddings_np = sbert_model.encode(
+            query_texts_list,
+            batch_size=256,
+            show_progress_bar=True,
+            convert_to_numpy=True,
+            normalize_embeddings=False  # Keep raw embeddings
+        )
+
+        # Generate passage embeddings
+        print(f"Encoding {len(passage_texts_list)} document/passage texts...")
+
+        # Special handling for ROBUST documents
+        if is_robust and dataset_name == "robust":
+            print(f"Using chunking for ROBUST documents with {chunk_aggregation} aggregation...")
+
+            # We need HuggingFace tokenizer/model for chunking with SBERT
+            from transformers import AutoTokenizer, AutoModel
+            tokenizer = AutoTokenizer.from_pretrained(model_name.replace('sentence-transformers/', ''))
+
+            # Initialize array for document embeddings
+            passage_embeddings_np = np.zeros((len(passage_texts_list), sbert_model.get_sentence_embedding_dimension()))
+
+            for i, passage_text in enumerate(tqdm(passage_texts_list, desc="Chunking ROBUST documents")):
+                if i < 3:  # Log a few examples
+                    print(f"Document {i}: Length={len(tokenizer.tokenize(passage_text))} tokens")
+
+                # Generate chunks and encode with SBERT
+                chunks = []
+                # Tokenize the document
+                tokens = tokenizer.tokenize(passage_text)
+
+                # If short enough, encode directly
+                if len(tokens) <= chunk_size - 2:  # Account for special tokens
+                    passage_embeddings_np[i] = sbert_model.encode(
+                        passage_text,
+                        show_progress_bar=False,
+                        convert_to_numpy=True
+                    )
+                    continue
+
+                # Create chunks with overlap
+                for j in range(0, len(tokens), chunk_stride):
+                    chunk_tokens = tokens[j:j + chunk_size - 2]
+                    if not chunk_tokens:
+                        continue
+
+                    chunk_text = tokenizer.convert_tokens_to_string(chunk_tokens)
+                    chunk_embedding = sbert_model.encode(
+                        chunk_text,
+                        show_progress_bar=False,
+                        convert_to_numpy=True
+                    )
+                    chunks.append(chunk_embedding)
+
+                # Aggregate chunks
+                if chunks:
+                    passage_embeddings_np[i] = aggregate_chunk_embeddings(chunks, chunk_aggregation)
+                else:
+                    # Fallback: encode with truncation
+                    passage_embeddings_np[i] = sbert_model.encode(
+                        passage_text,
+                        show_progress_bar=False,
+                        convert_to_numpy=True
+                    )
+        else:
+            # Standard encoding for non-ROBUST documents
+            passage_embeddings_np = sbert_model.encode(
+                passage_texts_list,
+                batch_size=128,  # Smaller batch size for longer passages
+                show_progress_bar=True,
+                convert_to_numpy=True,
+                normalize_embeddings=False  # Keep raw embeddings
+            )
+
+    # APPROACH 2: STANDARD HUGGINGFACE TRANSFORMERS
+    else:
+        print(f"Using HuggingFace Transformers approach with model: {model_name}")
+        from transformers import AutoTokenizer, AutoModel
+
+        # Load tokenizer and model
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModel.from_pretrained(model_name).to(device)
+        model.eval()
+
+        # Mean Pooling function
+        def mean_pooling(model_output, attention_mask):
+            token_embeddings = model_output.last_hidden_state
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+            return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1),
+                                                                                      min=1e-9)
+
+        # CLS Pooling function
+        def cls_pooling(model_output):
+            return model_output.last_hidden_state[:, 0]
+
+        # Choose pooling strategy - could be a parameter or in config
+        pooling_strategy = "mean"  # or "cls"
+        print(f"Using {pooling_strategy} pooling for transformer embeddings")
+
+        # Helper function to embed batches of text
+        def encode_batch(texts, batch_size=32, pooling_strategy="mean"):
+            all_embeddings = []
+
+            for i in tqdm(range(0, len(texts), batch_size)):
+                batch_texts = texts[i:i + batch_size]
+
+                # Tokenize
+                encoded_input = tokenizer(
+                    batch_texts,
+                    padding=True,
+                    truncation=True,
+                    return_tensors='pt',
+                    max_length=512
+                ).to(device)
+
+                # Compute token embeddings
+                with torch.no_grad():
+                    model_output = model(**encoded_input)
+
+                # Pool embeddings
+                if pooling_strategy == "mean":
+                    embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
+                elif pooling_strategy == "cls":
+                    embeddings = cls_pooling(model_output)
+                else:
+                    raise ValueError(f"Unknown pooling strategy: {pooling_strategy}")
+
+                # Move to CPU and convert to numpy
+                embeddings = embeddings.cpu().numpy()
+                all_embeddings.append(embeddings)
+
+            return np.vstack(all_embeddings)
+
+        # Generate query embeddings
+        print(f"Encoding {len(query_texts_list)} query texts...")
+        query_embeddings_np = encode_batch(
+            query_texts_list,
+            batch_size=64,  # Adjust based on your GPU memory
+            pooling_strategy=pooling_strategy
+        )
+
+        # Generate passage embeddings
+        print(f"Encoding {len(passage_texts_list)} document/passage texts...")
+
+        # Special handling for ROBUST documents
+        if is_robust and dataset_name == "robust":
+            print(f"Using chunking for ROBUST documents with {chunk_aggregation} aggregation...")
+
+            # Initialize array for document embeddings
+            passage_embeddings_np = np.zeros((len(passage_texts_list), model.config.hidden_size))
+
+            for i, passage_text in enumerate(tqdm(passage_texts_list, desc="Chunking ROBUST documents")):
+                if i < 3:  # Log a few examples
+                    print(f"Document {i}: Length={len(tokenizer.tokenize(passage_text))} tokens")
+
+                # Use the chunking function
+                passage_embeddings_np[i] = generate_chunked_embeddings(
+                    passage_text,
+                    tokenizer,
+                    model,
+                    max_length=chunk_size,
+                    stride=chunk_stride,
+                    device=device,
+                    pooling=pooling_strategy,
+                    aggregation=chunk_aggregation
+                )
+        else:
+            # Standard encoding for non-ROBUST documents
+            passage_embeddings_np = encode_batch(
+                passage_texts_list,
+                batch_size=32,  # Smaller for passages as they are typically longer
+                pooling_strategy=pooling_strategy
+            )
 
     print(f"Query embeddings shape: {query_embeddings_np.shape}")
     print(f"Document/passage embeddings shape: {passage_embeddings_np.shape}")
@@ -671,14 +981,14 @@ def verify_embeddings(dataset_name=None):
     print("Verification successful!")
     return True
 
-
 def main():
+    """Main function to generate embeddings for IR datasets."""
     parser = argparse.ArgumentParser(
         description='Generate embeddings for IR datasets using ir_datasets')
     parser.add_argument('--dataset', type=str, choices=['msmarco', 'car', 'robust'], required=True,
                         help='Dataset to use: msmarco, car, or robust')
     parser.add_argument('--model-name', type=str, default=None,
-                        help=f'SBERT model name (default: {config.SBERT_MODEL_NAME})')
+                        help=f'Model name (can be SBERT or HuggingFace model)')
     parser.add_argument('--device', type=str, default=config.DEVICE,
                         help=f'Device to use for encoding (cuda or cpu, default: {config.DEVICE})')
     parser.add_argument('--skip-if-exists', action='store_true',
@@ -695,12 +1005,24 @@ def main():
                         help='Path to qrels file (for car and robust, overrides config)')
     parser.add_argument('--run-file', type=str, default=None,
                         help='Path to run file (for car and robust, overrides config)')
+    parser.add_argument('--pooling', type=str, choices=['mean', 'cls'], default='mean',
+                        help='Pooling strategy for HuggingFace models (default: mean)')
+    parser.add_argument('--use-chunking', action='store_true',
+                        help='Use chunking for long documents (ROBUST dataset)')
+    parser.add_argument('--chunk-size', type=int, default=512,
+                        help='Maximum chunk size in tokens (default: 512)')
+    parser.add_argument('--chunk-stride', type=int, default=256,
+                        help='Stride between chunks (default: 256)')
+    parser.add_argument('--chunk-aggregation', type=str,
+                        choices=['mean', 'max', 'position', 'importance', 'first_chunk', 'hybrid'],
+                        default='hybrid',
+                        help='Method to aggregate chunk embeddings (default: hybrid)')
 
     args = parser.parse_args()
 
     # Set dataset name and model name
     dataset_name = args.dataset
-    model_name = args.model_name if args.model_name else config.SBERT_MODEL_NAME
+    model_name = args.model_name if args.model_name else getattr(config, 'EMBEDDING_MODEL_NAME', config.SBERT_MODEL_NAME)
     device = args.device
 
     # Handle verify-only mode
@@ -738,6 +1060,15 @@ def main():
         else:
             config.ROBUST_RUN_FILE = args.run_file
 
+    # Add chunking parameters to config for ROBUST documents
+    if dataset_name == "robust" or args.use_chunking:
+        config.ROBUST_USE_CHUNKING = args.use_chunking
+        config.ROBUST_CHUNK_SIZE = args.chunk_size
+        config.ROBUST_CHUNK_STRIDE = args.chunk_stride
+        config.ROBUST_CHUNK_AGGREGATION = args.chunk_aggregation
+        print(f"Chunking enabled: size={args.chunk_size}, stride={args.chunk_stride}, "
+              f"aggregation={args.chunk_aggregation}")
+
     # Load dataset parts
     dataset_parts = get_dataset_parts(dataset_name)
 
@@ -758,7 +1089,7 @@ def main():
 
     # Generate embeddings
     query_embeddings_np, passage_embeddings_np, query_id_to_idx, passage_id_to_idx = generate_embeddings(
-        qid_to_text, pid_to_text, model_name, device
+        qid_to_text, pid_to_text, model_name, device, dataset_name
     )
 
     # Save embeddings and mappings
@@ -770,7 +1101,6 @@ def main():
 
     # Verify embeddings
     verify_embeddings(dataset_name)
-
 
 if __name__ == "__main__":
     main()
