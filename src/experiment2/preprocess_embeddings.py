@@ -700,4 +700,77 @@ def main():
 
     # Set dataset name and model name
     dataset_name = args.dataset
-    model_name = args.model_name if args.model_name else config.SBERT
+    model_name = args.model_name if args.model_name else config.SBERT_MODEL_NAME
+    device = args.device
+
+    # Handle verify-only mode
+    if args.verify_only:
+        verify_embeddings(dataset_name)
+        return
+
+    # Get config values
+    config_prefix = dataset_name.upper()
+    query_embeddings_path = getattr(config, f"{config_prefix}_QUERY_EMBEDDINGS_PATH",
+                                    os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_query_embeddings.npy"))
+
+    # Skip if embeddings already exist and --skip-if-exists flag is set
+    if args.skip_if_exists and os.path.exists(query_embeddings_path):
+        print(f"Embeddings for {dataset_name} already exist at {query_embeddings_path}")
+        print("Skipping generation. Use --verify-only to check existing embeddings.")
+        return
+
+    # Override config file paths if provided via command line
+    if args.queries_file and (dataset_name == "car" or dataset_name == "robust"):
+        if dataset_name == "car":
+            config.CAR_QUERIES_FILE = args.queries_file
+        else:
+            config.ROBUST_QUERIES_FILE = args.queries_file
+
+    if args.qrels_file and (dataset_name == "car" or dataset_name == "robust"):
+        if dataset_name == "car":
+            config.CAR_QRELS_FILE = args.qrels_file
+        else:
+            config.ROBUST_QRELS_FILE = args.qrels_file
+
+    if args.run_file and (dataset_name == "car" or dataset_name == "robust"):
+        if dataset_name == "car":
+            config.CAR_RUN_FILE = args.run_file
+        else:
+            config.ROBUST_RUN_FILE = args.run_file
+
+    # Load dataset parts
+    dataset_parts = get_dataset_parts(dataset_name)
+
+    # Collect unique IDs
+    unique_qids, unique_pids = collect_unique_ids(dataset_name, dataset_parts)
+
+    # Apply limits if specified
+    if args.limit_queries and len(unique_qids) > args.limit_queries:
+        print(f"Limiting to {args.limit_queries} queries (original: {len(unique_qids)})")
+        unique_qids = set(list(unique_qids)[:args.limit_queries])
+
+    if args.limit_passages and len(unique_pids) > args.limit_passages:
+        print(f"Limiting to {args.limit_passages} passages (original: {len(unique_pids)})")
+        unique_pids = set(list(unique_pids)[:args.limit_passages])
+
+    # Load texts
+    qid_to_text, pid_to_text = load_texts(unique_qids, unique_pids, dataset_name, dataset_parts)
+
+    # Generate embeddings
+    query_embeddings_np, passage_embeddings_np, query_id_to_idx, passage_id_to_idx = generate_embeddings(
+        qid_to_text, pid_to_text, model_name, device
+    )
+
+    # Save embeddings and mappings
+    save_embeddings_and_mappings(
+        query_embeddings_np, passage_embeddings_np,
+        query_id_to_idx, passage_id_to_idx,
+        model_name, dataset_name
+    )
+
+    # Verify embeddings
+    verify_embeddings(dataset_name)
+
+
+if __name__ == "__main__":
+    main()
