@@ -8,11 +8,11 @@ set -e
 # Configuration
 BASE_DIR="/home/username/bilinear-proj-theory"
 CODE_DIR="$BASE_DIR/src/experiment2"
-EMBEDDING_DIR="/data/embeddings"
-CV_TRIPLES_DIR="/data/cv_triples"
-MODEL_SAVE_DIR="/results/saved_models"
-CAR_DATA_DIR="/data/datasets/car"
-ROBUST_DATA_DIR="/data/datasets/robust"
+EMBEDDING_DIR="/home/user/sisap2025/embeddings/"
+CV_TRIPLES_DIR="/home/user/sisap2025/cv_triples/"
+MODEL_SAVE_DIR="/home/user/sisap2025/results/experiment2/"
+CAR_DATA_DIR="/home/user/data/car"
+ROBUST_DATA_DIR="/home/user/data/robust"
 LOG_DIR="$BASE_DIR/logs"
 DATE_STAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/pipeline_run_$DATE_STAMP.log"
