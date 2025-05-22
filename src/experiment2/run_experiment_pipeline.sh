@@ -92,7 +92,8 @@ CMD="python3 $CODE_DIR/run_experiment_pipeline.py \
   --chunk-stride 256 \
   --chunk-aggregation hybrid \
   --device cuda \
-  --continue-on-failure"
+  --continue-on-failure \
+  --verbose
 
 # Add data directory args only if they exist
 if [ -n "$CAR_DATA_DIR" ]; then

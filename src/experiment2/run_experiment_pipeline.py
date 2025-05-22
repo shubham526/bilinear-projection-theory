@@ -24,6 +24,8 @@ class ExperimentPipeline:
         self.experiment_dir = self.base_dir / "experiment2"
         self.logs_dir = self.base_dir / "logs"
         self.logs_dir.mkdir(exist_ok=True, parents=True)
+        self.verbose = args.verbose
+        self.timeout = args.timeout
 
         # Set up path to scripts
         self.code_dir = Path(args.code_dir)
@@ -77,6 +79,8 @@ class ExperimentPipeline:
         self.write_log(f"  Device: {self.device}")
         self.write_log(f"  Folds: {self.folds}")
         self.write_log(f"  LRB Ranks: {self.lrb_ranks}")
+        self.write_log(f"  Verbose: {self.verbose}")
+        self.write_log(f"  Timeout: {self.timeout} seconds")
 
     def write_log(self, message):
         """Write a message to the log file and print to console"""
@@ -97,23 +101,59 @@ class ExperimentPipeline:
 
         try:
             # Run the command and capture output
-            with open(cmd_log, "w") as f:
-                start_time = time.time()
-                result = subprocess.run(
+            start_time = time.time()
+
+            # Set up process with appropriate output redirection
+            if self.verbose:
+                # Show output in real-time for verbose mode
+                process = subprocess.Popen(
                     command,
-                    stdout=f,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    check=True,
-                    text=True
+                    text=True,
+                    bufsize=1
                 )
-                elapsed = time.time() - start_time
+
+                # Open log file to write output
+                with open(cmd_log, "w") as log_file:
+                    # Read output line by line and both print and log it
+                    for line in iter(process.stdout.readline, ''):
+                        print(f"  > {line.rstrip()}")
+                        log_file.write(line)
+
+                # Wait for process to complete with timeout
+                returncode = process.wait(timeout=self.timeout)
+                if returncode != 0:
+                    raise subprocess.CalledProcessError(returncode, command)
+            else:
+                # Just log output without showing it in real-time
+                with open(cmd_log, "w") as f:
+                    subprocess.run(
+                        command,
+                        stdout=f,
+                        stderr=subprocess.STDOUT,
+                        check=True,
+                        text=True,
+                        timeout=self.timeout
+                    )
+
+            elapsed = time.time() - start_time
 
             # Log success
             self.write_log(f"Command completed successfully in {elapsed:.2f} seconds")
             self.write_log(f"Log file: {cmd_log}")
             return True
+
+        except subprocess.TimeoutExpired:
+            self.write_log(f"Command timed out after {self.timeout} seconds")
+            self.write_log(f"Check log file for details: {cmd_log}")
+            return False
         except subprocess.CalledProcessError as e:
             self.write_log(f"Command failed with exit code {e.returncode}")
+            self.write_log(f"Check log file for details: {cmd_log}")
+            return False
+        except Exception as e:
+            self.write_log(f"Command failed with exception: {str(e)}")
             self.write_log(f"Check log file for details: {cmd_log}")
             return False
 
@@ -121,8 +161,15 @@ class ExperimentPipeline:
         """Generate embeddings for a specific model and dataset"""
         self.write_log(f"Generating {model_name} embeddings for {dataset}...")
 
-        # Create model-specific embedding directory
+        # Check if embeddings already exist
         model_dir = self.embedding_dir / f"{model_name.replace('/', '-')}"
+        embedding_file = model_dir / f"{dataset}_embeddings.npz"
+
+        if embedding_file.exists() and not self.args.force_rebuild:
+            self.write_log(f"Embeddings already exist at {embedding_file}. Skipping...")
+            return True
+
+        # Create model-specific embedding directory
         model_dir.mkdir(exist_ok=True, parents=True)
 
         # Build command
@@ -176,6 +223,17 @@ class ExperimentPipeline:
         dataset_dir = self.cv_triples_dir / dataset
         dataset_dir.mkdir(exist_ok=True, parents=True)
 
+        # Check if triples already exist
+        model_key = model_name.replace('/', '-')
+        for fold in self.folds:
+            triples_file = dataset_dir / f"{model_key}_fold{fold}_triples.npz"
+            if not triples_file.exists() or self.args.force_rebuild:
+                break
+        else:
+            # All fold files exist
+            self.write_log(f"CV triples already exist for all folds. Skipping...")
+            return True
+
         # Build the model embedding path
         model_embedding_dir = self.embedding_dir / f"{model_name.replace('/', '-')}"
 
@@ -221,6 +279,43 @@ class ExperimentPipeline:
         # Create model-specific save directory
         save_dir = self.model_save_dir / f"{model_name.replace('/', '-')}" / dataset
         save_dir.mkdir(exist_ok=True, parents=True)
+
+        # Check if models already exist (only if not in force_rebuild mode)
+        if not self.args.force_rebuild:
+            # Generate model list to check
+            model_list = ["dot_product", "weighted_dot_product"]
+            for rank in self.lrb_ranks:
+                model_list.append(f"low_rank_bilinear_{rank}")
+            if self.args.include_full_rank:
+                model_list.append("full_rank_bilinear")
+
+            # For MS MARCO, check if models exist
+            if dataset == "msmarco":
+                all_models_exist = True
+                for model_type in model_list:
+                    model_file = save_dir / f"{model_type}.pt"
+                    if not model_file.exists():
+                        all_models_exist = False
+                        break
+
+                if all_models_exist:
+                    self.write_log(f"All models already exist for {dataset}. Skipping...")
+                    return True
+            # For CV datasets, check if models exist for all folds
+            else:
+                all_models_exist = True
+                for model_type in model_list:
+                    for fold in self.folds:
+                        model_file = save_dir / f"{model_type}_fold{fold}.pt"
+                        if not model_file.exists():
+                            all_models_exist = False
+                            break
+                    if not all_models_exist:
+                        break
+
+                if all_models_exist:
+                    self.write_log(f"All models already exist for all folds for {dataset}. Skipping...")
+                    return True
 
         # Determine which script to use based on dataset
         if dataset == "msmarco":
@@ -402,6 +497,12 @@ def main():
                         help="Continue pipeline even if a step fails")
     parser.add_argument("--use-config-save-dir", action="store_true",
                         help="Use the save directory from config.py instead of command-line args")
+    parser.add_argument("--force-rebuild", action="store_true",
+                        help="Force rebuild all artifacts even if they already exist")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Show output from commands in real-time")
+    parser.add_argument("--timeout", type=int, default=7200,
+                        help="Timeout for each command in seconds (default: 2 hours)")
 
     args = parser.parse_args()
 
