@@ -76,7 +76,7 @@ echo "  LOG_FILE: $LOG_FILE" | tee -a "$LOG_FILE"
 echo "===================================================" | tee -a "$LOG_FILE"
 
 # Build the command with proper escaping for empty variables
-CMD="python3 $BASE_DIR/run_experiment_pipeline.py \
+CMD="python3 $CODE_DIR/run_experiment_pipeline.py \
   --base-dir \"$BASE_DIR\" \
   --code-dir \"$CODE_DIR\" \
   --embedding-dir \"$EMBEDDING_DIR\" \
