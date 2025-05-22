@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-BASE_DIR="/home/username/bilinear-proj-theory"
+BASE_DIR="/home/user/bilinear-proj-theory"
 CODE_DIR="$BASE_DIR/src/experiment2"
 EMBEDDING_DIR="/home/user/sisap2025/embeddings/"
 CV_TRIPLES_DIR="/home/user/sisap2025/cv_triples/"
