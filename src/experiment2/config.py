@@ -11,10 +11,10 @@ DATASET_NAME = "msmarco"  # Default dataset if not specified
 EMBEDDING_DIR = "/home/user/sisap2025/embeddings/bert-base-uncased/msmarco/"  # Parent directory for fixed embeddings
 
 # Standard MS MARCO paths
-QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
-PASSAGE_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}passage_embeddings.npy"  # NumPy array
-QUERY_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}query_id_to_idx.json"  # Maps qid to embedding row index
-PASSAGE_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}passage_id_to_idx.json"  # Maps pid to embedding row index
+QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}msmarco_query_embeddings.npy"  # NumPy array
+PASSAGE_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}msmarco_passage_embeddings.npy"  # NumPy array
+QUERY_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}msmarco_query_id_to_idx.json"  # Maps qid to embedding row index
+PASSAGE_ID_TO_IDX_PATH = f"{EMBEDDING_DIR}msmarco_passage_id_to_idx.json"  # Maps pid to embedding row index
 
 # TREC CAR paths
 CAR_QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}car_query_embeddings.npy"
