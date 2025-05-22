@@ -223,14 +223,18 @@ class ExperimentPipeline:
         dataset_dir = self.cv_triples_dir / dataset
         dataset_dir.mkdir(exist_ok=True, parents=True)
 
-        # Check if triples already exist
+        # Check if triples already exist - use the correct filename format that matches what train_cv.py expects
         model_key = model_name.replace('/', '-')
+
+        all_triples_exist = True
         for fold in self.folds:
-            triples_file = dataset_dir / f"{model_key}_fold{fold}_triples.npz"
+            # IMPORTANT: Update the filename format to match what train_cv.py expects
+            triples_file = dataset_dir / f"fold_{fold}_triples.pt"
             if not triples_file.exists() or self.args.force_rebuild:
+                all_triples_exist = False
                 break
-        else:
-            # All fold files exist
+
+        if all_triples_exist and not self.args.force_rebuild:
             self.write_log(f"CV triples already exist for all folds. Skipping...")
             return True
 
