@@ -8,7 +8,7 @@ DATASET_NAME = "msmarco"  # Default dataset if not specified
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "/home/user/sisap2025/embeddings/bert-base-uncased/robust/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/sisap2025/embeddings/bert-base-uncased/msmarco/"  # Parent directory for fixed embeddings
 
 # Standard MS MARCO paths
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}query_embeddings.npy"  # NumPy array
