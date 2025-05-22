@@ -39,7 +39,7 @@ def train_model(model_name_key, use_ir_datasets=True):
     model_config_params = config.MODEL_CONFIGS[model_name_key]
 
     # Use MS MARCO dataset
-    dataset_name = "msmarco-passage"
+    dataset_name = "msmarco"
 
     # Create save directory for this model
     current_model_save_dir = os.path.join(config.MODEL_SAVE_DIR, dataset_name, model_name_key)

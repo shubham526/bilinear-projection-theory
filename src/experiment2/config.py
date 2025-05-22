@@ -4,7 +4,7 @@ import os
 import torch
 
 # --- Dataset Settings ---
-DATASET_NAME = "msmarco-passage"  # Default dataset if not specified
+DATASET_NAME = "msmarco"  # Default dataset if not specified
 
 # --- Data Paths ---
 # Student needs to update these paths
