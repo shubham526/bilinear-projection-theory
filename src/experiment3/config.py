@@ -9,7 +9,7 @@ EXP3_ENABLED = True  # Set to False to skip this experiment if running a master 
 # STUDENT: CRITICALLY UPDATE THIS PATH AND KEY
 # Example: "experiment2/saved_models/full_rank_bilinear/best_model.pth"
 # Example if using an LRB as W_star: "experiment2/saved_models/low_rank_bilinear_128/best_model.pth"
-PRETRAINED_W_STAR_MODEL_PATH = "experiment2/saved_models/full_rank_bilinear/best_model.pth"
+PRETRAINED_W_STAR_MODEL_PATH = "/home/user/sisap2025/results/experiment2/bert-base-uncased/msmarco/full_rank_bilinear/best_model.pth"
 
 # Specify the model key from experiment2/config.py's MODEL_CONFIGS
 # that PRETRAINED_W_STAR_MODEL_PATH corresponds to.
@@ -24,11 +24,11 @@ PRETRAINED_W_STAR_MODEL_KEY = "full_rank_bilinear"
 EXP3_RANKS_TO_TEST = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128]
 
 # --- Output Directory ---
-EXP3_RESULTS_DIR = "experiment3/saved_results_exp3/"
+EXP3_RESULTS_DIR = "/home/user/sisap2025/results/experiment3/saved_results_exp3/"
 
 # --- Pointwise Error Verification (Optional) ---
 VERIFY_POINTWISE_ERROR_BOUND = True
-NUM_POINTWISE_ERROR_SAMPLES = 10000 # Number of (q,d) pairs to sample for verification
+NUM_POINTWISE_ERROR_SAMPLES = 100000 # Number of (q,d) pairs to sample for verification
 
 # --- Device Configuration ---
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -44,7 +44,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # This helps avoid duplicating all data paths.
 # IMPORTANT: Ensure this path is correct relative to where main_experiment3.py is run from.
 # If running `python -m experiment3.main_experiment3` from project root, this should work.
-PATH_TO_EXP2_CONFIG_DIR = "experiment2"
+PATH_TO_EXP2_CONFIG_DIR = "/home/shubham-chatterjee/PycharmProjects/bilinear-proj-theory/src/experiment2"
 
 # The following will be loaded dynamically using experiment2's config
 # DEV_QUERIES_PATH (from exp2_config)
