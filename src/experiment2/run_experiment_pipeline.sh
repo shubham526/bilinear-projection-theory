@@ -17,6 +17,7 @@ ROBUST_DATA_DIR="$SISAP_DIR/data/robust/"
 LOG_DIR="$SISAP_DIR/logs"
 DATE_STAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/pipeline_run_$DATE_STAMP.log"
+START_TIME=$(date)
 
 # Create log directory if it doesn't exist
 mkdir -p "$LOG_DIR"
@@ -38,13 +39,17 @@ mkdir -p "$EMBEDDING_DIR"
 mkdir -p "$CV_TRIPLES_DIR"
 mkdir -p "$MODEL_SAVE_DIR"
 
-# Verify data directories and warn if missing
+# Verify data directories - fail if critical ones are missing
 if [ ! -d "$CAR_DATA_DIR" ]; then
-  echo "Warning: CAR_DATA_DIR at $CAR_DATA_DIR does not exist! Some functionality may be limited."
+  echo "Error: CAR_DATA_DIR at $CAR_DATA_DIR does not exist! Please create it and add the required data files."
+  echo "Required files: queries.tsv, qrels.txt, run.txt, folds.json"
+  exit 1
 fi
 
 if [ ! -d "$ROBUST_DATA_DIR" ]; then
-  echo "Warning: ROBUST_DATA_DIR at $ROBUST_DATA_DIR does not exist! Some functionality may be limited."
+  echo "Error: ROBUST_DATA_DIR at $ROBUST_DATA_DIR does not exist! Please create it and add the required data files."
+  echo "Required files: queries.tsv, qrels.txt, run.txt, folds.json"
+  exit 1
 fi
 
 # Check for CUDA
@@ -78,46 +83,51 @@ echo "  DEVICE: $DEVICE" | tee -a "$LOG_FILE"
 echo "  LOG_FILE: $LOG_FILE" | tee -a "$LOG_FILE"
 echo "===================================================" | tee -a "$LOG_FILE"
 
-# Build the command for the Python pipeline script
-CMD="python3 $CODE_DIR/run_experiment_pipeline.py \
-  --base-dir \"$SISAP_DIR\" \
-  --code-dir \"$CODE_DIR\" \
-  --embedding-dir \"$EMBEDDING_DIR\" \
-  --cv-triples-dir \"$CV_TRIPLES_DIR\" \
-  --model-save-dir \"$MODEL_SAVE_DIR\" \
-  --embedding-models facebook/contriever \
-  --datasets car robust \
-  --pipeline-components embeddings triples training \
-  --lrb-ranks 32 64 128 \
-  --include-full-rank \
-  --device $DEVICE \
-  --continue-on-failure \
-  --verbose"
+# Build command as array for better handling of paths with spaces
+CMD_ARGS=(
+  "python3" "$CODE_DIR/run_experiment_pipeline.py"
+  "--base-dir" "$SISAP_DIR"
+  "--code-dir" "$CODE_DIR"
+  "--embedding-dir" "$EMBEDDING_DIR"
+  "--cv-triples-dir" "$CV_TRIPLES_DIR"
+  "--model-save-dir" "$MODEL_SAVE_DIR"
+  "--embedding-models" "facebook/contriever"
+  "--datasets" "car" "robust"
+  "--pipeline-components" "embeddings" "triples" "training"
+  "--lrb-ranks" "32" "64" "128"
+  "--include-full-rank"
+  "--device" "$DEVICE"
+  "--continue-on-failure"
+  "--verbose"
+)
 
 # Add data directory args if they exist
 if [ -d "$CAR_DATA_DIR" ]; then
-  CMD="$CMD --car-data-dir \"$CAR_DATA_DIR\""
+  CMD_ARGS+=("--car-data-dir" "$CAR_DATA_DIR")
 fi
 
 if [ -d "$ROBUST_DATA_DIR" ]; then
-  CMD="$CMD --robust-data-dir \"$ROBUST_DATA_DIR\""
+  CMD_ARGS+=("--robust-data-dir" "$ROBUST_DATA_DIR")
 fi
+
+# Note: Folds files are handled internally by the Python scripts
+# The data directories contain the folds.json files that will be found automatically
 
 # Log the final command
 echo "Executing command:" | tee -a "$LOG_FILE"
-echo "$CMD" | tee -a "$LOG_FILE"
+echo "${CMD_ARGS[@]}" | tee -a "$LOG_FILE"
 echo "===================================================" | tee -a "$LOG_FILE"
 
 # Execute the command with full logging
 echo "Starting execution at $(date)" | tee -a "$LOG_FILE"
-eval "$CMD" 2>&1 | tee -a "$LOG_FILE"
+"${CMD_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
 
 # Check exit status
 STATUS=$?
 if [ $STATUS -eq 0 ]; then
   echo "===================================================" | tee -a "$LOG_FILE"
   echo "Pipeline completed successfully at $(date)" | tee -a "$LOG_FILE"
-  echo "Start time: Thu May 22 20:03:18 UTC 2025" | tee -a "$LOG_FILE"
+  echo "Start time: $START_TIME" | tee -a "$LOG_FILE"
   echo "End time: $(date)" | tee -a "$LOG_FILE"
 else
   echo "===================================================" | tee -a "$LOG_FILE"
