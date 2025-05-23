@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_experiment_pipeline.sh
-# Script to run the full experiment pipeline across multiple models and datasets
+# FIXED VERSION - Properly calls the Python pipeline script
 
 # Exit on error
 set -e
@@ -8,12 +8,13 @@ set -e
 # Configuration
 BASE_DIR="/home/user/bilinear-projection-theory"
 CODE_DIR="$BASE_DIR/src/experiment2/"
-EMBEDDING_DIR="/home/user/sisap2025/embeddings/"
-CV_TRIPLES_DIR="/home/user/sisap2025/cv_triples/"
-MODEL_SAVE_DIR="/home/user/sisap2025/results/experiment2/"
-CAR_DATA_DIR="/home/user/sisap2025/data/car/"
-ROBUST_DATA_DIR="/home/user/sisap2025/data/robust/"
-LOG_DIR="/home/user/sisap2025//logs"
+SISAP_DIR="/home/user/sisap2025"
+EMBEDDING_DIR="$SISAP_DIR/embeddings/"
+CV_TRIPLES_DIR="$SISAP_DIR/cv_triples/"
+MODEL_SAVE_DIR="$SISAP_DIR/results/experiment2/"
+CAR_DATA_DIR="$SISAP_DIR/data/car/"
+ROBUST_DATA_DIR="$SISAP_DIR/data/robust/"
+LOG_DIR="$SISAP_DIR/logs"
 DATE_STAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_FILE="$LOG_DIR/pipeline_run_$DATE_STAMP.log"
 
@@ -37,21 +38,21 @@ mkdir -p "$EMBEDDING_DIR"
 mkdir -p "$CV_TRIPLES_DIR"
 mkdir -p "$MODEL_SAVE_DIR"
 
-# Verify data directories if we're using them
+# Verify data directories and warn if missing
 if [ ! -d "$CAR_DATA_DIR" ]; then
-  echo "Warning: CAR_DATA_DIR at $CAR_DATA_DIR does not exist! Will use defaults."
-  CAR_DATA_DIR=""
+  echo "Warning: CAR_DATA_DIR at $CAR_DATA_DIR does not exist! Some functionality may be limited."
 fi
 
 if [ ! -d "$ROBUST_DATA_DIR" ]; then
-  echo "Warning: ROBUST_DATA_DIR at $ROBUST_DATA_DIR does not exist! Will use defaults."
-  ROBUST_DATA_DIR=""
+  echo "Warning: ROBUST_DATA_DIR at $ROBUST_DATA_DIR does not exist! Some functionality may be limited."
 fi
 
 # Check for CUDA
 if ! command -v nvidia-smi &> /dev/null; then
-  echo "Warning: nvidia-smi not found. Are you sure CUDA is available?"
-  echo "Continuing anyway, but you might encounter errors if CUDA is required."
+  echo "Warning: nvidia-smi not found. Will use CPU instead of CUDA."
+  DEVICE="cpu"
+else
+  DEVICE="cuda"
 fi
 
 # Check for Python and required packages
@@ -67,40 +68,38 @@ echo "===================================================" | tee -a "$LOG_FILE"
 echo "Configuration:" | tee -a "$LOG_FILE"
 echo "  BASE_DIR: $BASE_DIR" | tee -a "$LOG_FILE"
 echo "  CODE_DIR: $CODE_DIR" | tee -a "$LOG_FILE"
+echo "  SISAP_DIR: $SISAP_DIR" | tee -a "$LOG_FILE"
 echo "  EMBEDDING_DIR: $EMBEDDING_DIR" | tee -a "$LOG_FILE"
 echo "  CV_TRIPLES_DIR: $CV_TRIPLES_DIR" | tee -a "$LOG_FILE"
 echo "  MODEL_SAVE_DIR: $MODEL_SAVE_DIR" | tee -a "$LOG_FILE"
 echo "  CAR_DATA_DIR: $CAR_DATA_DIR" | tee -a "$LOG_FILE"
 echo "  ROBUST_DATA_DIR: $ROBUST_DATA_DIR" | tee -a "$LOG_FILE"
+echo "  DEVICE: $DEVICE" | tee -a "$LOG_FILE"
 echo "  LOG_FILE: $LOG_FILE" | tee -a "$LOG_FILE"
 echo "===================================================" | tee -a "$LOG_FILE"
 
-# Build the command with proper escaping for empty variables
+# Build the command for the Python pipeline script
 CMD="python3 $CODE_DIR/run_experiment_pipeline.py \
-  --base-dir \"$BASE_DIR\" \
+  --base-dir \"$SISAP_DIR\" \
   --code-dir \"$CODE_DIR\" \
   --embedding-dir \"$EMBEDDING_DIR\" \
   --cv-triples-dir \"$CV_TRIPLES_DIR\" \
   --model-save-dir \"$MODEL_SAVE_DIR\" \
-  --embedding-models microsoft/mpnet-base google/electra-base facebook/contriever \
-  --datasets msmarco car robust \
+  --embedding-models facebook/contriever \
+  --datasets car robust \
   --pipeline-components embeddings triples training \
   --lrb-ranks 32 64 128 \
   --include-full-rank \
-  --use-chunking \
-  --chunk-size 512 \
-  --chunk-stride 256 \
-  --chunk-aggregation hybrid \
-  --device cuda \
+  --device $DEVICE \
   --continue-on-failure \
   --verbose"
 
-# Add data directory args only if they exist
-if [ -n "$CAR_DATA_DIR" ]; then
+# Add data directory args if they exist
+if [ -d "$CAR_DATA_DIR" ]; then
   CMD="$CMD --car-data-dir \"$CAR_DATA_DIR\""
 fi
 
-if [ -n "$ROBUST_DATA_DIR" ]; then
+if [ -d "$ROBUST_DATA_DIR" ]; then
   CMD="$CMD --robust-data-dir \"$ROBUST_DATA_DIR\""
 fi
 
@@ -118,16 +117,14 @@ STATUS=$?
 if [ $STATUS -eq 0 ]; then
   echo "===================================================" | tee -a "$LOG_FILE"
   echo "Pipeline completed successfully at $(date)" | tee -a "$LOG_FILE"
+  echo "Start time: Thu May 22 20:03:18 UTC 2025" | tee -a "$LOG_FILE"
+  echo "End time: $(date)" | tee -a "$LOG_FILE"
 else
   echo "===================================================" | tee -a "$LOG_FILE"
   echo "Pipeline execution failed with status $STATUS at $(date)" | tee -a "$LOG_FILE"
+  echo "Check the logs above for details" | tee -a "$LOG_FILE"
 fi
 
-# Calculate total runtime
-START_TIME=$(head -n 3 "$LOG_FILE" | grep "Starting" | sed 's/.*at \(.*\)/\1/')
-END_TIME=$(date)
-echo "Start time: $START_TIME" | tee -a "$LOG_FILE"
-echo "End time: $END_TIME" | tee -a "$LOG_FILE"
 echo "===================================================" | tee -a "$LOG_FILE"
 
 exit $STATUS

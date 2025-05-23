@@ -18,6 +18,7 @@ from evaluate import evaluate_model_on_dev
 from torch.utils.data import Dataset, DataLoader
 from utils import load_folds, setup_logging
 
+
 def ensure_tensor_dtype(tensor, dtype=torch.float32):
     """Ensure tensor is of the specified data type."""
     if isinstance(tensor, torch.Tensor) and tensor.dtype != dtype:
@@ -140,7 +141,7 @@ def create_dataloader_from_triples(training_triples, query_embeddings, passage_e
 
 def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
                    query_embeddings, passage_embeddings, qid_to_idx, pid_to_idx, main_metric_name,
-                   triples_dir=None):
+                   triples_dir=None, model_save_dir=None):
     """
     Train a model using cross-validation for a specific fold.
 
@@ -153,7 +154,9 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
         passage_embeddings: Loaded passage embeddings
         qid_to_idx: Query ID to index mapping
         pid_to_idx: Passage ID to index mapping
+        main_metric_name: Main metric to track
         triples_dir: Directory containing triples files (default: data/cv_triples)
+        model_save_dir: Override for model save directory
 
     Returns:
         best_metric: Best evaluation metric achieved
@@ -164,7 +167,11 @@ def train_model_cv(model_name_key, dataset_name, fold_idx, folds_data,
 
     # Create save directory for this model and fold
     fold_dir = f"fold_{fold_idx}"
-    current_model_save_dir = os.path.join(config.MODEL_SAVE_DIR, dataset_name, model_name_key, fold_dir)
+    if model_save_dir:
+        current_model_save_dir = os.path.join(model_save_dir, f"{model_name_key}_fold{fold_idx}")
+    else:
+        current_model_save_dir = os.path.join(config.MODEL_SAVE_DIR, dataset_name, model_name_key, fold_dir)
+
     os.makedirs(current_model_save_dir, exist_ok=True)
 
     # Setup logging
@@ -446,13 +453,22 @@ def main():
                         help='Path to folds JSON file (default: from config)')
     parser.add_argument('--triples-dir', type=str, default='data/cv_triples',
                         help='Directory containing pre-created training triples')
-    # Add embedding-dir argument
     parser.add_argument('--embedding-dir', type=str, default=None,
                         help='Directory containing embeddings (overrides config.EMBEDDING_DIR)')
+    parser.add_argument('--model-save-dir', type=str, default=None,
+                        help='Directory to save trained models (overrides config.MODEL_SAVE_DIR)')
+    parser.add_argument('--device', type=str, default=None,
+                        help='Device to use (cuda or cpu)')
+
     args = parser.parse_args()
 
     dataset_name = args.dataset
     triples_dir = args.triples_dir
+
+    # Override device if specified
+    if args.device:
+        config.DEVICE = args.device
+        print(f"Device set to: {config.DEVICE}")
 
     # Update embedding directory if specified
     if args.embedding_dir:
@@ -511,7 +527,12 @@ def main():
             raise ValueError(f"Unsupported dataset for cross-validation: {dataset_name}")
 
     # Ensure model save directory exists
-    os.makedirs(os.path.join(config.MODEL_SAVE_DIR, dataset_name), exist_ok=True)
+    if args.model_save_dir:
+        model_save_base_dir = args.model_save_dir
+    else:
+        model_save_base_dir = os.path.join(config.MODEL_SAVE_DIR, dataset_name)
+
+    os.makedirs(model_save_base_dir, exist_ok=True)
 
     # Log system information
     print(f"PyTorch version: {torch.__version__}")
@@ -523,6 +544,7 @@ def main():
     print(f"Folds file: {folds_file_path}")
     print(f"Triples directory: {triples_dir}")
     print(f"Embedding directory: {config.EMBEDDING_DIR}")
+    print(f"Model save directory: {model_save_base_dir}")
 
     # Load folds
     folds = load_folds(folds_file_path)
@@ -584,7 +606,8 @@ def main():
                     qid_to_idx,
                     pid_to_idx,
                     main_metric_name=main_metric_name,
-                    triples_dir=triples_dir
+                    triples_dir=triples_dir,
+                    model_save_dir=args.model_save_dir
                 )
 
                 model_results[fold_idx] = {
@@ -631,7 +654,7 @@ def main():
         print(f"{model_name:<25} {avg_metric:<15.4f} {fold_count:<10}")
 
     # Save overall summary
-    summary_path = os.path.join(config.MODEL_SAVE_DIR, f"{dataset_name}_cv_summary_results.json")
+    summary_path = os.path.join(model_save_base_dir, f"{dataset_name}_cv_summary_results.json")
     with open(summary_path, "w") as f:
         json.dump(all_results, f, indent=2)
 

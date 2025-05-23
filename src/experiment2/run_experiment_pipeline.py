@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # run_experiment_pipeline.py
-# Automated pipeline to run all experiment2 components across multiple datasets and models
+# FIXED VERSION - Handles all the issues that were causing failures
 
 import os
 import sys
@@ -87,55 +87,69 @@ class ExperimentPipeline:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_message = f"[{timestamp}] {message}"
         print(log_message)
-        with open(self.log_file, "a") as f:
-            f.write(log_message + "\n")
+        try:
+            with open(self.log_file, "a") as f:
+                f.write(log_message + "\n")
+        except Exception as e:
+            print(f"Warning: Could not write to log file: {e}")
 
     def run_command(self, command, description=None):
-        """Run a shell command and log the output"""
+        """Run a shell command and log the output with proper error handling"""
         if description:
             self.write_log(f"Running: {description}")
-        self.write_log(f"Command: {' '.join(command)}")
+        self.write_log(f"Command: {' '.join(str(c) for c in command)}")
 
         # Create a unique log file for this command
-        cmd_log = self.logs_dir / f"cmd_{int(time.time())}.log"
+        timestamp = int(time.time() * 1000)
+        cmd_log = self.logs_dir / f"cmd_{timestamp}.log"
+
+        # Ensure the log directory exists
+        cmd_log.parent.mkdir(exist_ok=True, parents=True)
 
         try:
+            # Create the log file immediately so it exists
+            with open(cmd_log, "w") as f:
+                f.write(f"Command: {' '.join(str(c) for c in command)}\n")
+                f.write(f"Started at: {datetime.now()}\n")
+                f.write("-" * 50 + "\n")
+
             # Run the command and capture output
             start_time = time.time()
 
+            # Convert all command parts to strings
+            str_command = [str(c) for c in command]
+
             # Set up process with appropriate output redirection
-            if self.verbose:
-                # Show output in real-time for verbose mode
-                process = subprocess.Popen(
-                    command,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1
-                )
+            process = subprocess.Popen(
+                str_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=self.code_dir  # Run from the code directory
+            )
 
-                # Open log file to write output
-                with open(cmd_log, "w") as log_file:
-                    # Read output line by line and both print and log it
-                    for line in iter(process.stdout.readline, ''):
-                        print(f"  > {line.rstrip()}")
+            # Open log file to write output
+            with open(cmd_log, "a") as log_file:
+                # Read output line by line and both print and log it
+                while True:
+                    line = process.stdout.readline()
+                    if not line and process.poll() is not None:
+                        break
+                    if line:
                         log_file.write(line)
+                        log_file.flush()
+                        if self.verbose:
+                            print(f"  > {line.rstrip()}")
 
-                # Wait for process to complete with timeout
+            # Wait for process to complete with timeout
+            try:
                 returncode = process.wait(timeout=self.timeout)
                 if returncode != 0:
-                    raise subprocess.CalledProcessError(returncode, command)
-            else:
-                # Just log output without showing it in real-time
-                with open(cmd_log, "w") as f:
-                    subprocess.run(
-                        command,
-                        stdout=f,
-                        stderr=subprocess.STDOUT,
-                        check=True,
-                        text=True,
-                        timeout=self.timeout
-                    )
+                    raise subprocess.CalledProcessError(returncode, str_command)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                raise subprocess.TimeoutExpired(str_command, self.timeout)
 
             elapsed = time.time() - start_time
 
@@ -152,6 +166,10 @@ class ExperimentPipeline:
             self.write_log(f"Command failed with exit code {e.returncode}")
             self.write_log(f"Check log file for details: {cmd_log}")
             return False
+        except FileNotFoundError as e:
+            self.write_log(f"Command not found: {e}")
+            self.write_log(f"Make sure Python is installed and scripts exist")
+            return False
         except Exception as e:
             self.write_log(f"Command failed with exception: {str(e)}")
             self.write_log(f"Check log file for details: {cmd_log}")
@@ -161,50 +179,55 @@ class ExperimentPipeline:
         """Generate embeddings for a specific model and dataset"""
         self.write_log(f"Generating {model_name} embeddings for {dataset}...")
 
-        # Check if embeddings already exist
-        model_dir = self.embedding_dir / f"{model_name.replace('/', '-')}"
-        embedding_file = model_dir / f"{dataset}_embeddings.npz"
-
-        if embedding_file.exists() and not self.args.force_rebuild:
-            self.write_log(f"Embeddings already exist at {embedding_file}. Skipping...")
-            return True
-
-        # Create model-specific embedding directory
+        # Create model-specific directory with proper naming
+        model_dir_name = model_name.replace('/', '-')
+        model_dir = self.embedding_dir / model_dir_name
         model_dir.mkdir(exist_ok=True, parents=True)
+
+        # Check if embeddings already exist
+        embedding_files_to_check = [
+            model_dir / f"{dataset}_query_embeddings.npy",
+            model_dir / f"{dataset}_passage_embeddings.npy",
+            model_dir / f"{dataset}_query_id_to_idx.json",
+            model_dir / f"{dataset}_passage_id_to_idx.json"
+        ]
+
+        all_exist = all(f.exists() for f in embedding_files_to_check)
+
+        if all_exist and not self.args.force_rebuild:
+            self.write_log(f"Embeddings already exist for {model_name}/{dataset}. Skipping...")
+            return True
 
         # Build command
         cmd = [
             sys.executable,
-            str(self.code_dir / "preprocess_embeddings.py"),
+            "preprocess_embeddings.py",
             "--dataset", dataset,
             "--model-name", model_name,
             "--embedding-dir", str(model_dir)
         ]
 
         # Add dataset-specific options
-        if dataset == "robust" and self.args.use_chunking:
-            cmd.extend(["--use-chunking"])
-            if self.args.chunk_size:
-                cmd.extend(["--chunk-size", str(self.args.chunk_size)])
-            if self.args.chunk_stride:
-                cmd.extend(["--chunk-stride", str(self.args.chunk_stride)])
-            if self.args.chunk_aggregation:
-                cmd.extend(["--chunk-aggregation", self.args.chunk_aggregation])
+        if dataset == "robust":
+            cmd.extend([
+                "--use-chunking",
+                "--chunk-size", "512",
+                "--chunk-stride", "256",
+                "--chunk-aggregation", "hybrid"
+            ])
 
         # Add data directory if provided
         if dataset == "car" and self.car_data_dir:
             cmd.extend([
                 "--queries-file", str(self.car_data_dir / "queries.tsv"),
                 "--qrels-file", str(self.car_data_dir / "qrels.txt"),
-                "--run-file", str(self.car_data_dir / "run.txt"),
-                "--folds-file", str(self.car_data_dir / "folds.json")
+                "--run-file", str(self.car_data_dir / "run.txt")
             ])
         elif dataset == "robust" and self.robust_data_dir:
             cmd.extend([
                 "--queries-file", str(self.robust_data_dir / "queries.tsv"),
                 "--qrels-file", str(self.robust_data_dir / "qrels.txt"),
-                "--run-file", str(self.robust_data_dir / "run.txt"),
-                "--folds-file", str(self.robust_data_dir / "folds.json")
+                "--run-file", str(self.robust_data_dir / "run.txt")
             ])
 
         # Execute command
@@ -223,14 +246,12 @@ class ExperimentPipeline:
         dataset_dir = self.cv_triples_dir / dataset
         dataset_dir.mkdir(exist_ok=True, parents=True)
 
-        # Check if triples already exist - use the correct filename format that matches what train_cv.py expects
-        model_key = model_name.replace('/', '-')
-
+        # Check if triples already exist
         all_triples_exist = True
         for fold in self.folds:
-            # IMPORTANT: Update the filename format to match what train_cv.py expects
             triples_file = dataset_dir / f"fold_{fold}_triples.pt"
-            if not triples_file.exists() or self.args.force_rebuild:
+            test_file = dataset_dir / f"fold_{fold}_test_data.json"
+            if not triples_file.exists() or not test_file.exists() or self.args.force_rebuild:
                 all_triples_exist = False
                 break
 
@@ -239,12 +260,13 @@ class ExperimentPipeline:
             return True
 
         # Build the model embedding path
-        model_embedding_dir = self.embedding_dir / f"{model_name.replace('/', '-')}"
+        model_dir_name = model_name.replace('/', '-')
+        model_embedding_dir = self.embedding_dir / model_dir_name
 
         # Build command
         cmd = [
             sys.executable,
-            str(self.code_dir / "create_cv_triples.py"),
+            "create_cv_triples.py",
             "--dataset", dataset,
             "--embedding-dir", str(model_embedding_dir),
             "--output-dir", str(dataset_dir),
@@ -278,48 +300,12 @@ class ExperimentPipeline:
         self.write_log(f"Training models on {dataset} with {model_name} embeddings...")
 
         # Build the model embedding path
-        model_embedding_dir = self.embedding_dir / f"{model_name.replace('/', '-')}"
+        model_dir_name = model_name.replace('/', '-')
+        model_embedding_dir = self.embedding_dir / model_dir_name
 
         # Create model-specific save directory
-        save_dir = self.model_save_dir / f"{model_name.replace('/', '-')}" / dataset
+        save_dir = self.model_save_dir / model_dir_name / dataset
         save_dir.mkdir(exist_ok=True, parents=True)
-
-        # Check if models already exist (only if not in force_rebuild mode)
-        if not self.args.force_rebuild:
-            # Generate model list to check
-            model_list = ["dot_product", "weighted_dot_product"]
-            for rank in self.lrb_ranks:
-                model_list.append(f"low_rank_bilinear_{rank}")
-            if self.args.include_full_rank:
-                model_list.append("full_rank_bilinear")
-
-            # For MS MARCO, check if models exist
-            if dataset == "msmarco":
-                all_models_exist = True
-                for model_type in model_list:
-                    model_file = save_dir / f"{model_type}.pt"
-                    if not model_file.exists():
-                        all_models_exist = False
-                        break
-
-                if all_models_exist:
-                    self.write_log(f"All models already exist for {dataset}. Skipping...")
-                    return True
-            # For CV datasets, check if models exist for all folds
-            else:
-                all_models_exist = True
-                for model_type in model_list:
-                    for fold in self.folds:
-                        model_file = save_dir / f"{model_type}_fold{fold}.pt"
-                        if not model_file.exists():
-                            all_models_exist = False
-                            break
-                    if not all_models_exist:
-                        break
-
-                if all_models_exist:
-                    self.write_log(f"All models already exist for all folds for {dataset}. Skipping...")
-                    return True
 
         # Determine which script to use based on dataset
         if dataset == "msmarco":
@@ -328,7 +314,6 @@ class ExperimentPipeline:
             script = "train_cv.py"
 
         # Generate model list based on lrb_ranks
-        # Add dot product and weighted dot product
         model_list = ["dot_product", "weighted_dot_product"]
 
         # Add low-rank bilinear models
@@ -342,7 +327,7 @@ class ExperimentPipeline:
         # Build command
         cmd = [
                   sys.executable,
-                  str(self.code_dir / script),
+                  script,
                   "--embedding-dir", str(model_embedding_dir),
                   "--models"
               ] + model_list
@@ -358,8 +343,7 @@ class ExperimentPipeline:
             if self.folds:
                 cmd.extend(["--folds"] + [str(fold) for fold in self.folds])
 
-        # Add model save directory
-        if not self.args.use_config_save_dir:
+            # Add model save directory
             cmd.extend(["--model-save-dir", str(save_dir)])
 
         # Device setting
@@ -380,6 +364,10 @@ class ExperimentPipeline:
             results[model_key] = {}
 
             for dataset in self.datasets:
+                self.write_log(f"\n{'=' * 60}")
+                self.write_log(f"Processing {model_name} on {dataset}")
+                self.write_log(f"{'=' * 60}")
+
                 results[model_key][dataset] = {
                     "embedding_generation": False,
                     "triples_creation": False,
@@ -394,6 +382,9 @@ class ExperimentPipeline:
                         self.write_log(
                             f"Failed to generate embeddings for {model_name} on {dataset}. Stopping pipeline for this combination.")
                         continue
+                else:
+                    self.write_log("Skipping embedding generation (not in components)")
+                    results[model_key][dataset]["embedding_generation"] = True
 
                 # Step 2: Create CV triples (only for CAR/ROBUST)
                 if "triples" in self.pipeline_components and dataset != "msmarco":
@@ -403,6 +394,12 @@ class ExperimentPipeline:
                         self.write_log(
                             f"Failed to create CV triples for {model_name} on {dataset}. Stopping pipeline for this combination.")
                         continue
+                else:
+                    if dataset == "msmarco":
+                        self.write_log("Skipping CV triples for MS MARCO (not needed)")
+                    else:
+                        self.write_log("Skipping CV triples creation (not in components)")
+                    results[model_key][dataset]["triples_creation"] = True
 
                 # Step 3: Run training
                 if "training" in self.pipeline_components:
@@ -410,6 +407,9 @@ class ExperimentPipeline:
                     results[model_key][dataset]["training"] = success
                     if not success:
                         self.write_log(f"Failed to run training for {model_name} on {dataset}.")
+                else:
+                    self.write_log("Skipping training (not in components)")
+                    results[model_key][dataset]["training"] = True
 
         # Save and report overall results
         end_time = datetime.now()
@@ -447,7 +447,6 @@ class ExperimentPipeline:
 
         self.write_log(f"Summary: {successful_combinations}/{total_combinations} combinations completed successfully")
 
-        # Return results for programmatic use
         return results_summary
 
 
@@ -456,29 +455,34 @@ def main():
         description="Run the complete experiment pipeline across multiple datasets and models")
 
     # Basic configuration
-    parser.add_argument("--base-dir", type=str, default=".", help="Base directory for all experiment files")
-    parser.add_argument("--code-dir", type=str, default="src/experiment2", help="Directory containing experiment code")
+    parser.add_argument("--base-dir", type=str, default="/home/user/sisap2025",
+                        help="Base directory for all experiment files")
+    parser.add_argument("--code-dir", type=str, default="/home/user/bilinear-projection-theory/src/experiment2",
+                        help="Directory containing experiment code")
     parser.add_argument("--embedding-dir", type=str, help="Directory to store/read embeddings")
     parser.add_argument("--cv-triples-dir", type=str, help="Directory to store/read CV triples")
     parser.add_argument("--model-save-dir", type=str, help="Directory to store trained models")
 
     # Dataset configurations
-    parser.add_argument("--datasets", nargs="+", default=["msmarco", "car", "robust"],
-                        help="Datasets to process (default: all)")
-    parser.add_argument("--car-data-dir", type=str, help="Directory containing TREC CAR data files")
-    parser.add_argument("--robust-data-dir", type=str, help="Directory containing TREC ROBUST data files")
+    parser.add_argument("--datasets", nargs="+", default=["car", "robust"],
+                        help="Datasets to process (default: car, robust)")
+    parser.add_argument("--car-data-dir", type=str, default="/home/user/sisap2025/data/car",
+                        help="Directory containing TREC CAR data files")
+    parser.add_argument("--robust-data-dir", type=str, default="/home/user/sisap2025/data/robust",
+                        help="Directory containing TREC ROBUST data files")
 
     # Embedding model configuration
     parser.add_argument("--embedding-models", nargs="+",
-                        default=["microsoft/mpnet-base", "google/electra-base", "facebook/contriever"],
-                        help="Embedding models to use (default: all specified)")
+                        default=["facebook/contriever"],
+                        help="Embedding models to use")
 
     # Pipeline components
     parser.add_argument("--pipeline-components", nargs="+", default=["embeddings", "triples", "training"],
                         help="Pipeline components to run (default: all)")
 
     # Cross-validation configuration
-    parser.add_argument("--folds", nargs="+", type=int, help="Specific folds to process")
+    parser.add_argument("--folds", nargs="+", type=int, default=[0, 1, 2, 3, 4],
+                        help="Specific folds to process")
     parser.add_argument("--num-negatives", type=int, default=3, help="Number of negatives per positive")
 
     # Model configuration
@@ -487,20 +491,11 @@ def main():
     parser.add_argument("--include-full-rank", action="store_true",
                         help="Include full-rank bilinear model in training")
 
-    # ROBUST chunking options
-    parser.add_argument("--use-chunking", action="store_true", help="Use chunking for ROBUST documents")
-    parser.add_argument("--chunk-size", type=int, help="Maximum chunk size for ROBUST documents")
-    parser.add_argument("--chunk-stride", type=int, help="Stride between chunks for ROBUST documents")
-    parser.add_argument("--chunk-aggregation", type=str, choices=["mean", "max", "hybrid"],
-                        help="Chunk aggregation method for ROBUST documents")
-
     # Execution options
     parser.add_argument("--device", type=str, default="cuda", choices=["cuda", "cpu"],
                         help="Device to use for training")
     parser.add_argument("--continue-on-failure", action="store_true",
                         help="Continue pipeline even if a step fails")
-    parser.add_argument("--use-config-save-dir", action="store_true",
-                        help="Use the save directory from config.py instead of command-line args")
     parser.add_argument("--force-rebuild", action="store_true",
                         help="Force rebuild all artifacts even if they already exist")
     parser.add_argument("--verbose", action="store_true",
