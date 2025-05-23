@@ -199,12 +199,13 @@ class ExperimentPipeline:
             return True
 
         # Build command
+        # Build command
         cmd = [
             sys.executable,
             "preprocess_embeddings.py",
             "--dataset", dataset,
             "--model-name", model_name,
-            "--embedding-dir", str(model_dir)
+            "--embedding-dir", str(self.embedding_dir)  # Pass base dir, let the script handle model subdirs
         ]
 
         # Add dataset-specific options

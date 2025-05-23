@@ -861,25 +861,18 @@ def generate_embeddings(qid_to_text, pid_to_text, model_name=None, device=None, 
 def save_embeddings_and_mappings(query_embeddings_np, passage_embeddings_np,
                                  query_id_to_idx, passage_id_to_idx, model_name, dataset_name):
     """
-    Save embeddings and mapping files using paths from config.
+    Save embeddings and mapping files using direct paths in EMBEDDING_DIR.
     """
     print("Saving embeddings and mappings...")
 
     # Create directory if it doesn't exist
     os.makedirs(config.EMBEDDING_DIR, exist_ok=True)
 
-    # Format dataset name for config attributes
-    config_prefix = dataset_name.upper()
-
-    # Use dataset-specific filenames if provided in config
-    query_embeddings_path = getattr(config, f"{config_prefix}_QUERY_EMBEDDINGS_PATH",
-                                    os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_query_embeddings.npy"))
-    passage_embeddings_path = getattr(config, f"{config_prefix}_PASSAGE_EMBEDDINGS_PATH",
-                                      os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_passage_embeddings.npy"))
-    query_id_to_idx_path = getattr(config, f"{config_prefix}_QUERY_ID_TO_IDX_PATH",
-                                   os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_query_id_to_idx.json"))
-    passage_id_to_idx_path = getattr(config, f"{config_prefix}_PASSAGE_ID_TO_IDX_PATH",
-                                     os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_passage_id_to_idx.json"))
+    # Use simple, direct filenames in the EMBEDDING_DIR (no config path lookup)
+    query_embeddings_path = os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_query_embeddings.npy")
+    passage_embeddings_path = os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_passage_embeddings.npy")
+    query_id_to_idx_path = os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_query_id_to_idx.json")
+    passage_id_to_idx_path = os.path.join(config.EMBEDDING_DIR, f"{dataset_name}_passage_id_to_idx.json")
 
     # Save embeddings
     print(f"Saving query embeddings to {query_embeddings_path}...")
@@ -912,10 +905,7 @@ def save_embeddings_and_mappings(query_embeddings_np, passage_embeddings_np,
         json.dump(metadata, f, indent=2)
 
     print("All files saved successfully!")
-
-    # Return paths for verification
     return query_embeddings_path, passage_embeddings_path, query_id_to_idx_path, passage_id_to_idx_path
-
 
 def verify_embeddings(dataset_name=None):
     """
