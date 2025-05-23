@@ -1,5 +1,7 @@
 # experiment3/main_experiment3.py
 
+# Replace the entire import section with this more explicit version:
+
 import torch
 import os
 import sys
@@ -8,24 +10,66 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import logging
 import random
-import pandas as pd  # For saving CSV
+import pandas as pd
 
-# --- Add project root to sys.path to allow importing from experiment2 ---
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# Get the absolute path to project root (two levels up from this file)
+current_file_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_file_dir))
 
+# Add paths to sys.path
+paths_to_add = [
+    project_root,
+    os.path.join(project_root, 'src'),
+    os.path.join(project_root, 'src', 'experiment1'),
+    os.path.join(project_root, 'src', 'experiment2'),
+    os.path.join(project_root, 'src', 'experiment3'),
+]
+
+for path in paths_to_add:
+    if path not in sys.path:
+        sys.path.insert(0, path)
+
+# Print debug info to verify paths
+print(f"Project root: {project_root}")
+print(f"Current working directory: {os.getcwd()}")
+print(f"Python path entries: {sys.path[:5]}...")  # Show first 5 entries
+
+# Import local config
 import config as exp3_config
 
-# Import necessary components from Experiment 2
-sys.path.append(os.path.join(project_root, 'experiment2'))
-from src.experiment2.models import get_model as get_exp2_model, FullRankBilinearModel, LowRankBilinearModel
-from src.experiment2.data_loader import load_embeddings_and_mappings, load_dev_data_for_eval
-from src.experiment2.evaluate import evaluate_model_on_dev
-import src.experiment2.config as exp2_config
-from src.experiment1.models import BilinearScorer
+# Now try importing from experiment modules
+try:
+    from experiment2.models import get_model as get_exp2_model, FullRankBilinearModel, LowRankBilinearModel
+    from experiment2.data_loader import load_embeddings_and_mappings, load_dev_data_for_eval
+    from experiment2.evaluate import evaluate_model_on_dev
+    from experiment2 import config as exp2_config
+    from experiment1.models import BilinearScorer
 
+    print("✓ All imports successful!")
+except ImportError as e:
+    print(f"✗ Import error: {e}")
+    # Fallback: try importing directly by adding specific paths
+    sys.path.append(os.path.join(project_root, 'src', 'experiment2'))
+    sys.path.append(os.path.join(project_root, 'src', 'experiment1'))
 
+    from models import get_model as get_exp2_model, FullRankBilinearModel, LowRankBilinearModel
+    from data_loader import load_embeddings_and_mappings, load_dev_data_for_eval
+    from evaluate import evaluate_model_on_dev
+    import config as exp2_config
+
+    # For experiment1 models, we need to be more careful
+    experiment1_models_path = os.path.join(project_root, 'src', 'experiment1', 'models.py')
+    if os.path.exists(experiment1_models_path):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("exp1_models", experiment1_models_path)
+        exp1_models = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(exp1_models)
+        BilinearScorer = exp1_models.BilinearScorer
+        print("✓ Fallback imports successful!")
+    else:
+        print(f"✗ Could not find experiment1 models at {experiment1_models_path}")
+        raise
 
 def setup_logging_exp3(results_dir):
     """Setup logging for Experiment 3"""
