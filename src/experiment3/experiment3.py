@@ -34,8 +34,37 @@ print(f"Project root: {project_root}")
 print(f"Current working directory: {os.getcwd()}")
 print(f"Python path entries: {sys.path[:5]}...")  # Show first 5 entries
 
-# Import local config
-import config as exp3_config
+# Import local config explicitly from experiment3 directory
+current_file_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(current_file_dir, 'config.py')
+
+print(f"Looking for config at: {config_path}")
+print(f"Config file exists: {os.path.exists(config_path)}")
+
+if os.path.exists(config_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("exp3_config", config_path)
+    exp3_config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(exp3_config)
+    print(f"✓ Loaded config. EXP3_ENABLED = {getattr(exp3_config, 'EXP3_ENABLED', 'NOT FOUND')}")
+else:
+    print("✗ Config file not found, using fallback")
+
+
+    # Fallback config
+    class FallbackConfig:
+        EXP3_ENABLED = True
+        DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        EXP3_RESULTS_DIR = "results/experiment3"
+        PRETRAINED_W_STAR_MODEL_PATH = "results/experiment2/models/full_rank_bilinear_best.pth"
+        PRETRAINED_W_STAR_MODEL_KEY = "full_rank_bilinear"
+        EXP3_RANKS_TO_TEST = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128]
+        VERIFY_POINTWISE_ERROR_BOUND = True
+        NUM_POINTWISE_ERROR_SAMPLES = 1000
+
+
+    exp3_config = FallbackConfig()
 
 # Now try importing from experiment modules
 try:
