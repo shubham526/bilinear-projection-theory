@@ -48,27 +48,45 @@ try:
     print("✓ All imports successful!")
 except ImportError as e:
     print(f"✗ Import error: {e}")
+    print("Trying fallback import strategy...")
+
     # Fallback: try importing directly by adding specific paths
     sys.path.append(os.path.join(project_root, 'src', 'experiment2'))
     sys.path.append(os.path.join(project_root, 'src', 'experiment1'))
 
-    from models import get_model as get_exp2_model, FullRankBilinearModel, LowRankBilinearModel
-    from data_loader import load_embeddings_and_mappings, load_dev_data_for_eval
-    from evaluate import evaluate_model_on_dev
-    import config as exp2_config
-
-    # For experiment1 models, we need to be more careful
-    experiment1_models_path = os.path.join(project_root, 'src', 'experiment1', 'models.py')
-    if os.path.exists(experiment1_models_path):
+    try:
+        # Import only the classes we actually need
         import importlib.util
 
-        spec = importlib.util.spec_from_file_location("exp1_models", experiment1_models_path)
-        exp1_models = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(exp1_models)
-        BilinearScorer = exp1_models.BilinearScorer
-        print("✓ Fallback imports successful!")
-    else:
-        print(f"✗ Could not find experiment1 models at {experiment1_models_path}")
+        # Import experiment2 models
+        exp2_models_path = os.path.join(project_root, 'src', 'experiment2', 'models.py')
+        spec = importlib.util.spec_from_file_location("exp2_models", exp2_models_path)
+        exp2_models = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(exp2_models)
+
+        get_exp2_model = exp2_models.get_model
+        FullRankBilinearModel = exp2_models.FullRankBilinearModel
+        LowRankBilinearModel = exp2_models.LowRankBilinearModel
+
+        # Import experiment2 other modules
+        from data_loader import load_embeddings_and_mappings, load_dev_data_for_eval
+        from evaluate import evaluate_model_on_dev
+        import config as exp2_config
+
+        # Import experiment1 models
+        experiment1_models_path = os.path.join(project_root, 'src', 'experiment1', 'models.py')
+        if os.path.exists(experiment1_models_path):
+            spec = importlib.util.spec_from_file_location("exp1_models", experiment1_models_path)
+            exp1_models = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(exp1_models)
+            BilinearScorer = exp1_models.BilinearScorer
+            print("✓ Fallback imports successful!")
+        else:
+            print(f"✗ Could not find experiment1 models at {experiment1_models_path}")
+            raise ImportError(f"Cannot find experiment1 models")
+
+    except Exception as fallback_error:
+        print(f"✗ Fallback import also failed: {fallback_error}")
         raise
 
 def setup_logging_exp3(results_dir):
