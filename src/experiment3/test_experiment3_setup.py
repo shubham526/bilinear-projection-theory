@@ -200,9 +200,10 @@ def test_experiment3_setup():
     print("\n7. Testing dataset detection logic...")
     try:
         def test_determine_dataset_info(model_path):
-            """Test version of the dataset detection function"""
-            dataset_name = getattr(exp3_config, 'DATASET_NAME', 'msmarco')
+            """Fixed test version of the dataset detection function"""
+            config_dataset = getattr(exp3_config, 'DATASET_NAME', 'msmarco')
 
+            # Try to infer from path first
             model_path_lower = model_path.lower()
             if 'msmarco' in model_path_lower:
                 inferred = "msmarco"
@@ -213,6 +214,10 @@ def test_experiment3_setup():
             else:
                 inferred = "msmarco"
 
+            # Use inferred dataset, or fall back to config if path doesn't give clear indication
+            dataset_name = inferred if inferred != "msmarco" or 'msmarco' in model_path_lower else config_dataset
+
+            # Set ir_datasets based on final dataset choice
             if dataset_name in ["msmarco", "msmarco-passage"]:
                 use_ir_datasets = True
                 dataset_name = "msmarco-passage"
