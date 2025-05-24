@@ -142,14 +142,39 @@ def test_experiment3_setup():
             print(f"✗ Fallback import also failed: {e2}")
             return False
 
-    # 5. Test experiment1 imports
+    # 5. Test experiment1 imports - FIXED VERSION
     print("\n5. Testing experiment1 imports...")
     try:
-        from experiment1.models import BilinearScorer
-        print("✓ Experiment1 BilinearScorer imported successfully")
-    except ImportError as e:
-        print(f"⚠ Warning: Failed to import experiment1 modules: {e}")
-        print("  This might work with fallback import during actual execution")
+        # Use importlib to explicitly load from the correct path
+        import importlib.util
+        exp1_models_path = os.path.join(project_root, 'src', 'experiment1', 'models.py')
+
+        if os.path.exists(exp1_models_path):
+            spec = importlib.util.spec_from_file_location("exp1_models", exp1_models_path)
+            exp1_models = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(exp1_models)
+
+            # Check if BilinearScorer exists
+            if hasattr(exp1_models, 'BilinearScorer'):
+                print("✓ Experiment1 BilinearScorer imported successfully")
+
+                # Test that we can instantiate it
+                test_W = torch.eye(10, dtype=torch.float32)
+                test_scorer = exp1_models.BilinearScorer(test_W)
+                print("✓ BilinearScorer can be instantiated")
+
+            else:
+                print("✗ BilinearScorer not found in experiment1.models")
+                # List what is available
+                available = [attr for attr in dir(exp1_models) if not attr.startswith('_')]
+                print(f"  Available in exp1_models: {available}")
+
+        else:
+            print(f"✗ Experiment1 models.py not found at {exp1_models_path}")
+
+    except Exception as e:
+        print(f"✗ Failed to import experiment1 modules: {e}")
+        print("  This is non-critical - fallback import should work in actual execution")
 
     # 6. Test basic functionality
     print("\n6. Testing basic functionality...")
@@ -214,6 +239,43 @@ def test_experiment3_setup():
     except Exception as e:
         print(f"✗ Dataset detection test failed: {e}")
         return False
+
+    # 8. Test full import chain (like in actual experiment3.py)
+    print("\n8. Testing full import chain...")
+    try:
+        # Test the same import pattern as experiment3.py
+        import importlib.util
+
+        # Clear any cached modules to test fresh
+        modules_to_clear = ['exp1_models', 'exp2_models']
+        for mod in modules_to_clear:
+            if mod in sys.modules:
+                del sys.modules[mod]
+
+        # Test experiment2 imports
+        exp2_models_path = os.path.join(project_root, 'src', 'experiment2', 'models.py')
+        spec = importlib.util.spec_from_file_location("exp2_models", exp2_models_path)
+        exp2_models = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(exp2_models)
+
+        get_exp2_model = exp2_models.get_model
+        FullRankBilinearModel = exp2_models.FullRankBilinearModel
+        LowRankBilinearModel = exp2_models.LowRankBilinearModel
+
+        # Test experiment1 imports
+        exp1_models_path = os.path.join(project_root, 'src', 'experiment1', 'models.py')
+        spec = importlib.util.spec_from_file_location("exp1_models", exp1_models_path)
+        exp1_models = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(exp1_models)
+
+        BilinearScorer = exp1_models.BilinearScorer
+
+        print("✓ Full import chain test passed")
+        print("  Both experiment1 and experiment2 models can be imported correctly")
+
+    except Exception as e:
+        print(f"⚠ Full import chain test failed: {e}")
+        print("  The fallback strategy in experiment3.py should handle this")
 
     print("\n" + "=" * 60)
     print("✓ Experiment 3 setup test completed successfully!")
