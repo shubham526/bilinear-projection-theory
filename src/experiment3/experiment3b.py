@@ -775,6 +775,8 @@ def main():
 
     validation_results = []
     violation_rate = 0.0  # Initialize with default value
+    total_violations = 0
+    total_samples = 0
 
     try:
         # Select a subset of ranks for validation to save time
@@ -808,10 +810,12 @@ def main():
                 print("   ⚠️  Some bound violations detected")
         else:
             print("   ⚠️  No validation results obtained")
+            violation_rate = 0.0  # Ensure it's defined even if no validation results
 
     except Exception as e:
         print(f"❌ Error bound validation failed: {e}")
         validation_results = []
+        violation_rate = 0.0  # Ensure it's defined even on exception
 
     # === STEP 6: Create Comprehensive Analysis ===
     print("\nSTEP 6: Creating comprehensive analysis and plots")
