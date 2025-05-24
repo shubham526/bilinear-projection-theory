@@ -1,6 +1,4 @@
-# experiment3/main_experiment3.py
-
-# Replace the entire import section with this more explicit version:
+# experiment3/experiment3.py - Dataset-aware version
 
 import torch
 import os
@@ -62,6 +60,8 @@ else:
         EXP3_RANKS_TO_TEST = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128]
         VERIFY_POINTWISE_ERROR_BOUND = True
         NUM_POINTWISE_ERROR_SAMPLES = 1000
+        # Default to MS MARCO if not specified
+        DATASET_NAME = "msmarco"
 
 
     exp3_config = FallbackConfig()
@@ -117,6 +117,43 @@ except ImportError as e:
     except Exception as fallback_error:
         print(f"✗ Fallback import also failed: {fallback_error}")
         raise
+
+
+def determine_dataset_info(model_path):
+    """
+    Determine the dataset name based on the model path.
+    Returns (dataset_name, use_ir_datasets)
+    """
+    logger = logging.getLogger(__name__)
+
+    # Check if dataset is specified in config
+    if hasattr(exp3_config, 'DATASET_NAME'):
+        dataset_name = exp3_config.DATASET_NAME
+        logger.info(f"Using dataset from config: {dataset_name}")
+    else:
+        # Try to infer from model path
+        model_path_lower = model_path.lower()
+        if 'msmarco' in model_path_lower:
+            dataset_name = "msmarco"
+        elif 'car' in model_path_lower:
+            dataset_name = "car"
+        elif 'robust' in model_path_lower:
+            dataset_name = "robust"
+        else:
+            # Default to msmarco
+            dataset_name = "msmarco"
+            logger.warning(f"Could not determine dataset from path {model_path}, defaulting to 'msmarco'")
+
+    # Determine data loading strategy based on dataset
+    if dataset_name in ["msmarco", "msmarco-passage"]:
+        use_ir_datasets = True
+        dataset_name = "msmarco-passage"  # Normalize name
+    else:
+        use_ir_datasets = False
+
+    logger.info(f"Dataset: {dataset_name}, use_ir_datasets: {use_ir_datasets}")
+    return dataset_name, use_ir_datasets
+
 
 def setup_logging_exp3(results_dir):
     """Setup logging for Experiment 3"""
@@ -233,14 +270,15 @@ def plot_singular_values(singular_values, save_path_dir, filename="singular_valu
     logger.info(f"Singular value plot saved to {plot_file}")
 
 
-def plot_performance_vs_rank(ranks_tested, mrr_scores, save_path_dir, filename="performance_vs_rank.png"):
+def plot_performance_vs_rank(ranks_tested, scores, save_path_dir, metric_name="MRR@10",
+                             filename="performance_vs_rank.png"):
     logger = logging.getLogger(__name__)
-    logger.info("Plotting MRR@10 vs. Rank r...")
+    logger.info(f"Plotting {metric_name} vs. Rank r...")
     plt.figure(figsize=(10, 6))
-    plt.plot(ranks_tested, mrr_scores, marker='x', linestyle='-', linewidth=2, markersize=8)
-    plt.title('Retrieval Performance (MRR@10) vs. Rank r of W_r')
+    plt.plot(ranks_tested, scores, marker='x', linestyle='-', linewidth=2, markersize=8)
+    plt.title(f'Retrieval Performance ({metric_name}) vs. Rank r of W_r')
     plt.xlabel('Rank (r)')
-    plt.ylabel('MRR@10 on MS MARCO Dev')
+    plt.ylabel(f'{metric_name}')
     # Make x-ticks more readable
     if len(ranks_tested) > 10:
         plt.xticks(ranks_tested[::max(1, len(ranks_tested) // 10)] + [ranks_tested[-1]])
@@ -254,28 +292,28 @@ def plot_performance_vs_rank(ranks_tested, mrr_scores, save_path_dir, filename="
     logger.info(f"Performance vs. Rank plot saved to {plot_file}")
 
 
-def plot_performance_vs_sigma_r_plus_1(ranks_tested, mrr_scores, singular_values, save_path_dir,
-                                       filename="performance_vs_sigma_r_plus_1.png"):
+def plot_performance_vs_sigma_r_plus_1(ranks_tested, scores, singular_values, save_path_dir,
+                                       metric_name="MRR@10", filename="performance_vs_sigma_r_plus_1.png"):
     logger = logging.getLogger(__name__)
-    logger.info("Plotting MRR@10 vs. σ_{r+1}...")
+    logger.info(f"Plotting {metric_name} vs. σ_{{r+1}}...")
 
     sigma_r_plus_1_values = []
-    valid_mrr_for_sigma_plot = []
+    valid_scores_for_sigma_plot = []
 
     for i, r_val in enumerate(ranks_tested):
         if r_val < len(singular_values):
             sigma_r_plus_1_values.append(singular_values[r_val].item())
-            valid_mrr_for_sigma_plot.append(mrr_scores[i])
+            valid_scores_for_sigma_plot.append(scores[i])
 
     if not sigma_r_plus_1_values:
-        logger.warning("Not enough data to plot performance vs sigma_r+1.")
+        logger.warning(f"Not enough data to plot performance vs sigma_r+1.")
         return
 
     plt.figure(figsize=(10, 6))
-    plt.plot(sigma_r_plus_1_values, valid_mrr_for_sigma_plot, marker='o', linestyle='-', linewidth=2, markersize=8)
-    plt.title('Retrieval Performance (MRR@10) vs. Next Neglected Singular Value (σ_{r+1})')
+    plt.plot(sigma_r_plus_1_values, valid_scores_for_sigma_plot, marker='o', linestyle='-', linewidth=2, markersize=8)
+    plt.title(f'Retrieval Performance ({metric_name}) vs. Next Neglected Singular Value (σ_{{r+1}})')
     plt.xlabel('Next Singular Value (σ_{r+1}) - Log Scale')
-    plt.ylabel('MRR@10 on MS MARCO Dev')
+    plt.ylabel(f'{metric_name}')
     plt.xscale('log')
     plt.grid(True, which="both", ls="-", alpha=0.3)
     # Invert x-axis for better visualization
@@ -398,6 +436,10 @@ def main():
     logger.info(
         f"Loading W* from: {exp3_config.PRETRAINED_W_STAR_MODEL_PATH} (type: {exp3_config.PRETRAINED_W_STAR_MODEL_KEY})")
 
+    # Determine dataset and data loading strategy
+    dataset_name, use_ir_datasets = determine_dataset_info(exp3_config.PRETRAINED_W_STAR_MODEL_PATH)
+    logger.info(f"Detected dataset: {dataset_name}, using ir_datasets: {use_ir_datasets}")
+
     # --- 1. Load W* and Perform SVD ---
     try:
         W_star_cpu = get_W_star_matrix(
@@ -415,23 +457,24 @@ def main():
     plot_singular_values(S_singular_values_cpu, exp3_config.EXP3_RESULTS_DIR)
 
     # --- 2. Load Data for Evaluation ---
-    logger.info("Loading MS MARCO embeddings and dev data for evaluation...")
+    logger.info(f"Loading embeddings and dev data for {dataset_name}...")
+
+    # Load embeddings using experiment2's method with dataset-specific logic
     query_embeddings_all, passage_embeddings_all, qid_to_idx_map, pid_to_idx_map = load_embeddings_and_mappings(
-        query_emb_path=exp2_config.QUERY_EMBEDDINGS_PATH,
-        passage_emb_path=exp2_config.PASSAGE_EMBEDDINGS_PATH,
-        qid_map_path=exp2_config.QUERY_ID_TO_IDX_PATH,
-        pid_map_path=exp2_config.PASSAGE_ID_TO_IDX_PATH
+        dataset_name=dataset_name if dataset_name != "msmarco-passage" else None
     )
+
+    # Load dev data using experiment2's method with dataset-specific logic
     dev_query_to_candidates_map = load_dev_data_for_eval(
-        dev_queries_path=exp2_config.DEV_QUERIES_PATH,
-        dev_candidates_path=exp2_config.DEV_CANDIDATES_PATH,
-        qid_to_idx=qid_to_idx_map,
-        pid_to_idx=pid_to_idx_map
+        qid_to_idx_map,
+        pid_to_idx_map,
+        use_ir_datasets=use_ir_datasets,
+        dataset_name=dataset_name
     )
 
     # --- 3. Evaluate W_r for various ranks r ---
     evaluated_ranks = []
-    mrr_scores_list = []
+    scores_list = []
 
     max_possible_rank_svd = len(S_singular_values_cpu)
     embedding_dim_from_exp2 = exp2_config.EMBEDDING_DIM
@@ -449,6 +492,16 @@ def main():
 
     logger.info(f"Will test approximations for ranks: {valid_ranks_to_test_config}")
 
+    # Determine primary metric based on dataset
+    if dataset_name == "car":
+        primary_metric = "map"
+    elif dataset_name == "robust":
+        primary_metric = "ndcg_cut_10"
+    else:  # msmarco or default
+        primary_metric = "mrr_cut_10"
+
+    logger.info(f"Primary metric for {dataset_name}: {primary_metric}")
+
     for r_val in tqdm(valid_ranks_to_test_config, desc="Evaluating W_r Approximations"):
         logger.info(f"\n--- Evaluating for Rank r = {r_val} ---")
         W_r_cpu = construct_Wr_approximation(U_cpu, S_singular_values_cpu, Vh_cpu, r_val)
@@ -458,8 +511,8 @@ def main():
 
         run_file_path = os.path.join(exp3_config.EXP3_RESULTS_DIR, f"run.dev.Wr_rank{r_val}.txt")
 
-        # Evaluate the model
-        mrr_at_10 = evaluate_model_on_dev(
+        # Evaluate the model - using dataset-aware parameters
+        primary_score, all_metrics = evaluate_model_on_dev(
             model=temp_model_Wr,
             query_embeddings=query_embeddings_all,
             passage_embeddings=passage_embeddings_all,
@@ -467,25 +520,39 @@ def main():
             pid_to_idx=pid_to_idx_map,
             dev_query_to_candidates=dev_query_to_candidates_map,
             run_file_path=run_file_path,
+            use_ir_datasets=use_ir_datasets,
+            dataset_name=dataset_name
         )
-        logger.info(f"Rank r={r_val}, MRR@10: {mrr_at_10:.4f}")
+
+        # Get the primary metric value for this dataset
+        if primary_metric in all_metrics:
+            primary_score = all_metrics[primary_metric]
+        # If primary_score is already the right metric (e.g., from MRR@10 return), use it
+
+        logger.info(f"Rank r={r_val}, {primary_metric.upper()}: {primary_score:.4f}")
         evaluated_ranks.append(r_val)
-        mrr_scores_list.append(mrr_at_10)
+        scores_list.append(primary_score)
 
     # --- 4. Plotting and Saving Results ---
     if evaluated_ranks:
-        plot_performance_vs_rank(evaluated_ranks, mrr_scores_list, exp3_config.EXP3_RESULTS_DIR)
-        plot_performance_vs_sigma_r_plus_1(evaluated_ranks, mrr_scores_list, S_singular_values_cpu,
-                                           exp3_config.EXP3_RESULTS_DIR)
+        plot_performance_vs_rank(evaluated_ranks, scores_list, exp3_config.EXP3_RESULTS_DIR,
+                                 metric_name=primary_metric.upper())
+        plot_performance_vs_sigma_r_plus_1(evaluated_ranks, scores_list, S_singular_values_cpu,
+                                           exp3_config.EXP3_RESULTS_DIR,
+                                           metric_name=primary_metric.upper())
 
         results_summary = {
             "experiment_config": {
                 "PRETRAINED_W_STAR_MODEL_PATH": exp3_config.PRETRAINED_W_STAR_MODEL_PATH,
                 "PRETRAINED_W_STAR_MODEL_KEY": exp3_config.PRETRAINED_W_STAR_MODEL_KEY,
                 "EXP3_RANKS_TO_TEST_CONFIGURED": exp3_config.EXP3_RANKS_TO_TEST,
+                "dataset_name": dataset_name,
+                "use_ir_datasets": use_ir_datasets,
+                "primary_metric": primary_metric
             },
             "ranks_evaluated": evaluated_ranks,
-            "mrr_scores": mrr_scores_list,
+            "scores": scores_list,
+            "primary_metric": primary_metric,
             "singular_values_all": S_singular_values_cpu.tolist()
         }
         summary_file = os.path.join(exp3_config.EXP3_RESULTS_DIR, "experiment3_summary.json")
