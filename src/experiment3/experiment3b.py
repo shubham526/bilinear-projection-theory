@@ -728,6 +728,9 @@ def main():
 
     # === STEP 4: Evaluate Performance (Optional) ===
     performance_results = {}
+    best_rank = None
+    best_score = None
+
     if not args.skip_evaluation:
         print("\nSTEP 4: Evaluating retrieval performance")
         print("-" * 50)
@@ -770,6 +773,9 @@ def main():
     print("\nSTEP 5: Validating theoretical error bounds")
     print("-" * 50)
 
+    validation_results = []
+    violation_rate = 0.0  # Initialize with default value
+
     try:
         # Select a subset of ranks for validation to save time
         validation_ranks = {}
@@ -789,16 +795,19 @@ def main():
         print(f"✓ Error bound validation completed")
 
         # Summary of validation
-        total_violations = sum(r['bound_violations'] for r in validation_results)
-        total_samples = len(validation_results) * args.validation_samples
-        violation_rate = total_violations / total_samples * 100 if total_samples > 0 else 0
+        if validation_results:
+            total_violations = sum(r['bound_violations'] for r in validation_results)
+            total_samples = len(validation_results) * args.validation_samples
+            violation_rate = total_violations / total_samples * 100 if total_samples > 0 else 0
 
-        print(f"📊 Validation Summary:")
-        print(f"   Total bound violations: {total_violations}/{total_samples} ({violation_rate:.2f}%)")
-        if violation_rate < 1:
-            print("   ✓ Error bounds are empirically tight")
+            print(f"📊 Validation Summary:")
+            print(f"   Total bound violations: {total_violations}/{total_samples} ({violation_rate:.2f}%)")
+            if violation_rate < 1:
+                print("   ✓ Error bounds are empirically tight")
+            else:
+                print("   ⚠️  Some bound violations detected")
         else:
-            print("   ⚠️  Some bound violations detected")
+            print("   ⚠️  No validation results obtained")
 
     except Exception as e:
         print(f"❌ Error bound validation failed: {e}")
@@ -879,10 +888,7 @@ KEY FINDINGS:
 ✓ Rank-{svd_analysis['rank_95_percent']} captures 95% of matrix energy
 """
 
-    if performance_results:
-        best_rank = max(performance_results.keys(), key=lambda r: performance_results[r]['primary_score'])
-        best_score = performance_results[best_rank]['primary_score']
-
+    if performance_results and best_rank is not None and best_score is not None:
         summary_text += f"""
 PERFORMANCE ANALYSIS:
 - Ranks evaluated: {list(performance_results.keys())}
@@ -901,7 +907,7 @@ EFFICIENCY SWEET SPOTS:"""
     if validation_results:
         total_violations = sum(r['bound_violations'] for r in validation_results)
         total_samples = len(validation_results) * args.validation_samples
-        violation_rate = total_violations / total_samples * 100
+        violation_rate = total_violations / total_samples * 100 if total_samples > 0 else 0
 
         summary_text += f"""
 
@@ -943,7 +949,7 @@ FILES GENERATED:
     print(f"🎉 Results saved to: {output_dir}")
     print(f"⏱️  Total runtime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-    if performance_results:
+    if performance_results and best_rank is not None and best_score is not None:
         print(f"\n🏆 KEY RESULT: Rank-{best_rank} bilinear model achieves {best_score:.4f} performance")
         print(f"📊 This validates the theoretical advantages of bilinear similarities!")
 
