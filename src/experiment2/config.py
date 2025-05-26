@@ -8,7 +8,7 @@ DATASET_NAME = "msmarco"  # Default dataset if not specified
 
 # --- Data Paths ---
 # Student needs to update these paths
-EMBEDDING_DIR = "/home/user/sisap2025/embeddings/facebook-contriever/msmarco/"  # Parent directory for fixed embeddings
+EMBEDDING_DIR = "/home/user/sisap2025/embeddings/microsoft-mpnet-base/msmarco/"  # Parent directory for fixed embeddings
 
 # Standard MS MARCO paths
 QUERY_EMBEDDINGS_PATH = f"{EMBEDDING_DIR}msmarco_query_embeddings.npy"  # NumPy array
@@ -46,7 +46,7 @@ ROBUST_CHUNK_STRIDE = 256
 ROBUST_CHUNK_AGGREGATION = "hybrid"
 
 # --- Model for preprocessing ---
-EMBEDDING_MODEL_NAME = 'facebook/contriver'  # or any HuggingFace model name
+EMBEDDING_MODEL_NAME = 'microsoft/mpnet-base'  # or any HuggingFace model name
 EMBEDDING_DIM = 768
 # SBERT_MODEL_NAME = 'all-mpnet-base-v2'  # The SBERT model to use for embedding generation
 
@@ -92,7 +92,7 @@ NUM_EPOCHS = 8
 WEIGHT_DECAY = 1e-5
 MARGIN = 1.0  # For MarginRankingLoss
 EVAL_BATCH_SIZE = 256  # For scoring candidates during evaluation
-MODEL_SAVE_DIR = "/home/user/sisap2025/results/experiment2/facebook-contriever/msmarco/"
+MODEL_SAVE_DIR = "/home/user/sisap2025/results/experiment2/microsoft-mpnet-base/msmarco/"
 LOG_INTERVAL = 100  # Log training loss every N batches
 
 # --- Cross-validation Training Settings ---
