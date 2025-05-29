@@ -1,16 +1,14 @@
 #!/bin/bash
 
-# experiment3_batch_runner.sh
-# Batch runner for Experiment 3: Low-Rank Approximation Analysis
-
-set -e  # Exit on any error
+# experiment3_batch_runner.sh - CV fold aware version
+set -e
 
 # Configuration
 BASE_DIR="/home/user/sisap2025"
 RESULTS_BASE_DIR="$BASE_DIR/results"
 EXP2_RESULTS_DIR="$RESULTS_BASE_DIR/experiment2"
 EXP3_RESULTS_DIR="$RESULTS_BASE_DIR/experiment3"
-SCRIPT_PATH="/home/user/bilinear-projection-theory/src/experiment3/experiment3.py"  # Adjust path as needed
+SCRIPT_PATH="/home/user/bilinear-projection-theory/src/experiment3/experiment3.py"
 
 # Arrays for datasets and models
 datasets=("car" "robust" "msmarco")
@@ -20,244 +18,235 @@ models=("bert-base-uncased" "facebook-contriever" "microsoft-mpnet-base")
 ranks=(1 2 4 8 16 32 64 128)
 device="cuda"
 num_samples=100000
-model_type="full_rank_bilinear"
 
-# Logging setup
-LOG_DIR="$EXP3_RESULTS_DIR/logs"
-mkdir -p "$LOG_DIR"
-MAIN_LOG="$LOG_DIR/batch_run_$(date +%Y%m%d_%H%M%S).log"
-ERROR_LOG="$LOG_DIR/batch_errors_$(date +%Y%m%d_%H%M%S).log"
+# CV folds (for car and robust)
+cv_folds=(0 1 2 3 4)
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Logging functions
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1" | tee -a "$MAIN_LOG"
-}
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1" | tee -a "$MAIN_LOG"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1" | tee -a "$MAIN_LOG" | tee -a "$ERROR_LOG"
-}
-
-log_debug() {
-    echo -e "${BLUE}[DEBUG]${NC} $1" | tee -a "$MAIN_LOG"
-}
-
-# Function to check prerequisites
-check_prerequisites() {
-    log_info "Checking prerequisites..."
-
-    # Check if Python script exists
-    if [[ ! -f "$SCRIPT_PATH" ]]; then
-        log_error "Python script not found: $SCRIPT_PATH"
-        log_error "Please adjust SCRIPT_PATH in the script configuration"
-        exit 1
-    fi
-
-    # Check if base directories exist
-    if [[ ! -d "$EXP2_RESULTS_DIR" ]]; then
-        log_error "Experiment 2 results directory not found: $EXP2_RESULTS_DIR"
-        exit 1
-    fi
-
-    # Check CUDA availability if using GPU
-    if [[ "$device" == "cuda" ]]; then
-        if ! python -c "import torch; print('CUDA available:', torch.cuda.is_available())" 2>/dev/null | grep -q "True"; then
-            log_warn "CUDA not available, falling back to CPU"
-            device="cpu"
-        else
-            log_info "CUDA is available"
-        fi
-    fi
-
-    # Create output directories
-    mkdir -p "$EXP3_RESULTS_DIR"
-
-    log_info "Prerequisites check completed"
-}
-
-# Function to check if model file exists
-check_model_file() {
-    local model_path="$1"
-    if [[ -f "$model_path" ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# Function to run single experiment
-run_experiment() {
+# Function to find model files for a dataset/model combination
+find_model_files() {
     local dataset="$1"
     local model="$2"
-    local model_path="$3"
-    local output_dir="$4"
+    local model_files=()
 
-    log_info "Starting experiment: Dataset=$dataset, Model=$model"
-    log_debug "Model path: $model_path"
-    log_debug "Output dir: $output_dir"
+    if [[ "$dataset" == "msmarco" ]]; then
+        # MS MARCO doesn't use CV, look for single model
+        local single_model_paths=(
+            "$EXP2_RESULTS_DIR/$model/$dataset/full_rank_bilinear/best_model.pth"
+            "$EXP2_RESULTS_DIR/$dataset/$model/full_rank_bilinear/best_model.pth"
+        )
 
-    # Create output directory
-    mkdir -p "$output_dir"
-
-    # Prepare ranks argument
-    local ranks_str="${ranks[*]}"
-
-    # Run the experiment
-    local cmd="python \"$SCRIPT_PATH\" \
-        --model_path \"$model_path\" \
-        --dataset \"$dataset\" \
-        --ranks $ranks_str \
-        --results_dir \"$output_dir\" \
-        --device \"$device\" \
-        --num_samples $num_samples \
-        --verify_bounds"
-
-    log_debug "Command: $cmd"
-
-    # Execute with timeout and capture output
-    local exp_log="$output_dir/experiment.log"
-    local exp_error="$output_dir/experiment_error.log"
-
-    if timeout 3600 bash -c "$cmd" > "$exp_log" 2> "$exp_error"; then
-        log_info "✓ Experiment completed successfully: Dataset=$dataset, Model=$model"
-
-        # Check if results were generated
-        if [[ -f "$output_dir/experiment3_summary.json" ]]; then
-            log_info "✓ Results summary generated: $output_dir/experiment3_summary.json"
-        else
-            log_warn "⚠ No results summary found (experiment may have failed silently)"
-        fi
-
-        return 0
+        for path in "${single_model_paths[@]}"; do
+            if [[ -f "$path" ]]; then
+                model_files+=("$path")
+                break
+            fi
+        done
     else
-        local exit_code=$?
-        log_error "✗ Experiment failed: Dataset=$dataset, Model=$model (exit code: $exit_code)"
-        log_error "Check logs: $exp_log and $exp_error"
+        # CAR and ROBUST use 5-fold CV
+        for fold in "${cv_folds[@]}"; do
+            local fold_paths=(
+                "$EXP2_RESULTS_DIR/$model/$dataset/full_rank_bilinear_fold$fold/best_model.pth"
+                "$EXP2_RESULTS_DIR/$dataset/$model/full_rank_bilinear_fold$fold/best_model.pth"
+            )
 
-        # Show last few lines of error log if it exists
-        if [[ -f "$exp_error" && -s "$exp_error" ]]; then
-            log_error "Last few lines of error log:"
-            tail -5 "$exp_error" | while read line; do
-                log_error "  $line"
-            done
-        fi
-
-        return 1
-    fi
-}
-
-# Function to generate summary report
-generate_summary() {
-    log_info "Generating batch run summary..."
-
-    local summary_file="$EXP3_RESULTS_DIR/batch_summary_$(date +%Y%m%d_%H%M%S).txt"
-
-    {
-        echo "Experiment 3 Batch Run Summary"
-        echo "=============================="
-        echo "Date: $(date)"
-        echo "Total combinations: $((${#datasets[@]} * ${#models[@]}))"
-        echo ""
-        echo "Configuration:"
-        echo "- Datasets: ${datasets[*]}"
-        echo "- Models: ${models[*]}"
-        echo "- Ranks: ${ranks[*]}"
-        echo "- Device: $device"
-        echo "- Samples: $num_samples"
-        echo ""
-        echo "Results:"
-
-        local total=0
-        local successful=0
-        local failed=0
-
-        for dataset in "${datasets[@]}"; do
-            for model in "${models[@]}"; do
-                total=$((total + 1))
-                local output_dir="$EXP3_RESULTS_DIR/$dataset/$model"
-
-                if [[ -f "$output_dir/experiment3_summary.json" ]]; then
-                    successful=$((successful + 1))
-                    echo "✓ $dataset/$model - SUCCESS"
-                else
-                    failed=$((failed + 1))
-                    echo "✗ $dataset/$model - FAILED"
+            for path in "${fold_paths[@]}"; do
+                if [[ -f "$path" ]]; then
+                    model_files+=("$path")
+                    break
                 fi
             done
         done
+    fi
 
-        echo ""
-        echo "Summary Statistics:"
-        echo "- Total experiments: $total"
-        echo "- Successful: $successful"
-        echo "- Failed: $failed"
-        echo "- Success rate: $(( successful * 100 / total ))%"
-
-    } | tee "$summary_file"
-
-    log_info "Summary saved to: $summary_file"
+    printf '%s\n' "${model_files[@]}"
 }
 
-# Main execution function
+# Function to run experiment on a single model
+run_single_experiment() {
+    local dataset="$1"
+    local model="$2"
+    local model_path="$3"
+    local fold_id="$4"
+    local output_dir="$5"
+
+    local fold_suffix=""
+    if [[ -n "$fold_id" ]]; then
+        fold_suffix="_fold$fold_id"
+    fi
+
+    log_info "🚀 Running experiment: Dataset=$dataset, Model=$model$fold_suffix"
+
+    local cmd="python \"$SCRIPT_PATH\" \
+        --model-path \"$model_path\" \
+        --dataset \"$dataset\" \
+        --ranks ${ranks[*]} \
+        --results-dir \"$output_dir\" \
+        --device \"$device\" \
+        --num-samples $num_samples \
+        --verify-bounds"
+
+    if eval "$cmd"; then
+        log_info "✅ Experiment completed: Dataset=$dataset, Model=$model$fold_suffix"
+        return 0
+    else
+        log_error "❌ Experiment failed: Dataset=$dataset, Model=$model$fold_suffix"
+        return 1
+    fi
+}
+
+# Function to aggregate CV results
+aggregate_cv_results() {
+    local dataset="$1"
+    local model="$2"
+    local base_output_dir="$3"
+
+    log_info "📊 Aggregating CV results for $dataset/$model"
+
+    # Create aggregation script
+    cat > "/tmp/aggregate_cv.py" << 'EOF'
+import json
+import numpy as np
+import sys
+import os
+
+def aggregate_cv_results(base_dir, dataset, model):
+    fold_results = []
+
+    for fold in range(5):
+        fold_dir = f"{base_dir}/fold_{fold}"
+        summary_file = f"{fold_dir}/experiment3_summary.json"
+
+        if os.path.exists(summary_file):
+            with open(summary_file, 'r') as f:
+                data = json.load(f)
+                fold_results.append(data)
+
+    if not fold_results:
+        print(f"No valid fold results found for {dataset}/{model}")
+        return
+
+    # Aggregate scores across folds
+    all_ranks = fold_results[0]['ranks_evaluated']
+    aggregated_scores = []
+
+    for i, rank in enumerate(all_ranks):
+        rank_scores = [result['scores'][i] for result in fold_results if i < len(result['scores'])]
+        if rank_scores:
+            aggregated_scores.append({
+                'rank': rank,
+                'mean_score': np.mean(rank_scores),
+                'std_score': np.std(rank_scores),
+                'scores_per_fold': rank_scores
+            })
+
+    # Create aggregated summary
+    aggregated_summary = {
+        'dataset': dataset,
+        'model': model,
+        'num_folds': len(fold_results),
+        'primary_metric': fold_results[0]['primary_metric'],
+        'aggregated_results': aggregated_scores,
+        'best_rank_mean': max(aggregated_scores, key=lambda x: x['mean_score'])['rank'],
+        'best_score_mean': max(aggregated_scores, key=lambda x: x['mean_score'])['mean_score'],
+        'individual_fold_results': fold_results
+    }
+
+    # Save aggregated results
+    output_file = f"{base_dir}/cv_aggregated_summary.json"
+    with open(output_file, 'w') as f:
+        json.dump(aggregated_summary, f, indent=2)
+
+    print(f"Aggregated results saved to: {output_file}")
+    print(f"Best rank (mean): {aggregated_summary['best_rank_mean']}")
+    print(f"Best score (mean): {aggregated_summary['best_score_mean']:.4f}")
+
+if __name__ == "__main__":
+    aggregate_cv_results(sys.argv[1], sys.argv[2], sys.argv[3])
+EOF
+
+    python /tmp/aggregate_cv.py "$base_output_dir" "$dataset" "$model"
+}
+
+# Main execution
 main() {
-    log_info "Starting Experiment 3 batch runner"
-    log_info "Timestamp: $(date)"
-    log_info "Configuration: ${#datasets[@]} datasets × ${#models[@]} models = $((${#datasets[@]} * ${#models[@]})) total experiments"
+    log_info "Starting Experiment 3 batch runner (CV-aware)"
 
-    # Check prerequisites
-    check_prerequisites
-
-    # Track statistics
     local total_experiments=0
     local successful_experiments=0
     local failed_experiments=0
     local skipped_experiments=0
 
-    # Main execution loop
     for dataset in "${datasets[@]}"; do
         log_info "Processing dataset: $dataset"
 
         for model in "${models[@]}"; do
-            total_experiments=$((total_experiments + 1))
+            log_info "Processing model: $model for dataset: $dataset"
 
-            # Construct paths
-            local model_path="$EXP2_RESULTS_DIR/$model/$dataset/$model_type/best_model.pth"
-            local output_dir="$EXP3_RESULTS_DIR/$dataset/$model"
+            # Find all model files for this dataset/model combination
+            readarray -t model_files < <(find_model_files "$dataset" "$model")
 
-            # Check if model file exists
-            if ! check_model_file "$model_path"; then
-                log_warn "⚠ Model file not found, skipping: $model_path"
+            if [[ ${#model_files[@]} -eq 0 ]]; then
+                log_error "❌ No model files found for dataset=$dataset, model=$model"
                 skipped_experiments=$((skipped_experiments + 1))
                 continue
             fi
 
-            # Check if experiment already completed (optional skip)
-            if [[ -f "$output_dir/experiment3_summary.json" ]]; then
-                log_info "⚠ Experiment already completed, skipping: $dataset/$model"
-                log_info "  (Delete $output_dir/experiment3_summary.json to re-run)"
-                skipped_experiments=$((skipped_experiments + 1))
-                continue
-            fi
+            log_info "Found ${#model_files[@]} model file(s) for $dataset/$model"
 
-            # Run the experiment
-            if run_experiment "$dataset" "$model" "$model_path" "$output_dir"; then
-                successful_experiments=$((successful_experiments + 1))
-            else
-                failed_experiments=$((failed_experiments + 1))
-            fi
+            # Create base output directory
+            base_output_dir="$EXP3_RESULTS_DIR/$dataset/$model"
 
-            # Brief pause between experiments
-            sleep 2
+            local fold_success_count=0
+
+            # Process each model file
+            for i in "${!model_files[@]}"; do
+                model_path="${model_files[$i]}"
+                total_experiments=$((total_experiments + 1))
+
+                # Determine fold ID and output directory
+                if [[ "$dataset" == "msmarco" ]]; then
+                    fold_id=""
+                    output_dir="$base_output_dir"
+                else
+                    fold_id="$i"
+                    output_dir="$base_output_dir/fold_$i"
+                fi
+
+                mkdir -p "$output_dir"
+
+                # Check if experiment already completed
+                if [[ -f "$output_dir/experiment3_summary.json" ]]; then
+                    log_info "⏭️  Experiment already completed, skipping: $dataset/$model/fold_$i"
+                    skipped_experiments=$((skipped_experiments + 1))
+                    fold_success_count=$((fold_success_count + 1))
+                    continue
+                fi
+
+                # Run the experiment
+                if run_single_experiment "$dataset" "$model" "$model_path" "$fold_id" "$output_dir"; then
+                    successful_experiments=$((successful_experiments + 1))
+                    fold_success_count=$((fold_success_count + 1))
+                else
+                    failed_experiments=$((failed_experiments + 1))
+                fi
+
+                sleep 2
+            done
+
+            # Aggregate results if we have CV folds
+            if [[ "$dataset" != "msmarco" && $fold_success_count -gt 1 ]]; then
+                aggregate_cv_results "$dataset" "$model" "$base_output_dir"
+            fi
         done
     done
 
@@ -268,126 +257,37 @@ main() {
     log_info "  Successful: $successful_experiments"
     log_info "  Failed: $failed_experiments"
     log_info "  Skipped: $skipped_experiments"
-    log_info "  Success rate: $(( successful_experiments * 100 / (total_experiments - skipped_experiments) ))%"
-
-    # Generate detailed summary
-    generate_summary
-
-    log_info "Logs saved to:"
-    log_info "  Main log: $MAIN_LOG"
-    log_info "  Error log: $ERROR_LOG"
-
-    # Exit with appropriate code
-    if [[ $failed_experiments -gt 0 ]]; then
-        log_warn "Some experiments failed. Check error logs for details."
-        exit 1
-    else
-        log_info "All experiments completed successfully!"
-        exit 0
-    fi
 }
 
-# Signal handlers for graceful shutdown
-cleanup() {
-    log_warn "Script interrupted. Cleaning up..."
-    exit 130
-}
-
-trap cleanup SIGINT SIGTERM
-
-# Help function
-show_help() {
-    cat << EOF
-Experiment 3 Batch Runner
-
-Usage: $0 [OPTIONS]
-
-This script runs Experiment 3 (Low-Rank Approximation Analysis) across
-multiple datasets and models in batch mode.
-
-Options:
-    -h, --help          Show this help message
-    --dry-run          Show what would be executed without running
-    --force            Overwrite existing results
-    --datasets LIST    Comma-separated list of datasets (default: car,robust,msmarco)
-    --models LIST      Comma-separated list of models (default: bert-base-uncased,facebook-contriever,microsoft-mpnet-base)
-    --device DEVICE    Device to use (default: cuda)
-    --samples N        Number of samples for verification (default: 100000)
-
-Examples:
-    $0                          # Run with default settings
-    $0 --dry-run               # Show what would be executed
-    $0 --datasets car,msmarco  # Run only on specific datasets
-    $0 --device cpu            # Use CPU instead of GPU
-
-Configuration can be modified by editing the script variables at the top.
-EOF
-}
-
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        --dry-run)
-            DRY_RUN=1
-            shift
-            ;;
-        --force)
-            FORCE=1
-            shift
-            ;;
-        --datasets)
-            IFS=',' read -ra datasets <<< "$2"
-            shift 2
-            ;;
-        --models)
-            IFS=',' read -ra models <<< "$2"
-            shift 2
-            ;;
-        --device)
-            device="$2"
-            shift 2
-            ;;
-        --samples)
-            num_samples="$2"
-            shift 2
-            ;;
-        *)
-            log_error "Unknown option: $1"
-            show_help
-            exit 1
-            ;;
-    esac
-done
-
-# Handle dry run
-if [[ "$DRY_RUN" == "1" ]]; then
-    echo "DRY RUN MODE - Commands that would be executed:"
-    echo "=============================================="
-
-    for dataset in "${datasets[@]}"; do
-        for model in "${models[@]}"; do
-            model_path="$EXP2_RESULTS_DIR/$model/$dataset/$model_type/best_model.pth"
-            output_dir="$EXP3_RESULTS_DIR/$dataset/$model"
-            ranks_str="${ranks[*]}"
-
-            echo ""
-            echo "Dataset: $dataset, Model: $model"
-            echo "Command: python \"$SCRIPT_PATH\" \\"
-            echo "    --model_path \"$model_path\" \\"
-            echo "    --dataset \"$dataset\" \\"
-            echo "    --ranks $ranks_str \\"
-            echo "    --results_dir \"$output_dir\" \\"
-            echo "    --device \"$device\" \\"
-            echo "    --num_samples $num_samples \\"
-            echo "    --verify_bounds"
+# Handle command line arguments
+case "${1:-}" in
+    --dry-run)
+        log_info "DRY RUN MODE - Would execute experiments for:"
+        for dataset in "${datasets[@]}"; do
+            for model in "${models[@]}"; do
+                readarray -t model_files < <(find_model_files "$dataset" "$model")
+                if [[ ${#model_files[@]} -gt 0 ]]; then
+                    log_info "✅ $dataset/$model -> ${#model_files[@]} file(s)"
+                    for file in "${model_files[@]}"; do
+                        log_info "    $file"
+                    done
+                else
+                    log_warn "❌ $dataset/$model -> NOT FOUND"
+                fi
+            done
         done
-    done
-    exit 0
-fi
+        exit 0
+        ;;
+    --help)
+        echo "Usage: $0 [OPTIONS]"
+        echo ""
+        echo "Options:"
+        echo "  --dry-run      Show what would be executed"
+        echo "  --help         Show this help"
+        echo ""
+        echo "This script handles both single models (MS MARCO) and 5-fold CV models (CAR, ROBUST)."
+        exit 0
+        ;;
+esac
 
-# Run main function
 main "$@"
