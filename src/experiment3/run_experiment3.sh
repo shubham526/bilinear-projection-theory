@@ -10,7 +10,7 @@ BASE_DIR="/home/user/sisap2025"
 RESULTS_BASE_DIR="$BASE_DIR/results"
 EXP2_RESULTS_DIR="$RESULTS_BASE_DIR/experiment2"
 EXP3_RESULTS_DIR="$RESULTS_BASE_DIR/experiment3"
-SCRIPT_PATH="/home/user/bilinear-projection-theory/src/experiment3"  # Adjust path as needed
+SCRIPT_PATH="/home/user/bilinear-projection-theory/src/experiment3/experiment3.py"  # Adjust path as needed
 
 # Arrays for datasets and models
 datasets=("car" "robust" "msmarco")
