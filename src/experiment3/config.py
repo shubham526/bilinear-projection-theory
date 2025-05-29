@@ -10,7 +10,6 @@ EXP3_ENABLED = True  # Set to False to skip this experiment if running a master 
 # Options: "msmarco", "car", "robust"
 # If not specified, will try to infer from model path
 DATASET_NAME = "msmarco"  # Change this to "car" or "robust" if analyzing those datasets
-
 # --- Path to the TRAINED Full-Rank Bilinear Model (or a high-rank LRB to approximate W*) ---
 # This model should have been saved by experiment2 training
 # The paths will be searched in order, first match wins

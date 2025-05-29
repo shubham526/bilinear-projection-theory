@@ -590,17 +590,131 @@ def get_qrels_path_for_dataset(dataset_name):
         return None  # MS MARCO uses ir_datasets
 
 
+import argparse
+
+
+def parse_arguments():
+    """Parse command line arguments for Experiment 3"""
+    parser = argparse.ArgumentParser(description='Experiment 3: Low-Rank Approximation Analysis')
+
+    # Model and dataset arguments
+    parser.add_argument('--model-path', type=str,
+                        default=getattr(exp3_config, 'PRETRAINED_W_STAR_MODEL_PATH', None),
+                        help='Path to the pretrained W* model file')
+    parser.add_argument('--model-key', type=str,
+                        default=getattr(exp3_config, 'PRETRAINED_W_STAR_MODEL_KEY', 'full_rank_bilinear'),
+                        help='Model key/type (e.g., full_rank_bilinear, low_rank_bilinear)')
+    parser.add_argument('--dataset', type=str,
+                        default=getattr(exp3_config, 'DATASET_NAME', 'msmarco'),
+                        choices=['msmarco', 'car', 'robust'],
+                        help='Dataset to use for evaluation')
+
+    # Rank testing arguments
+    parser.add_argument('--ranks', type=int, nargs='+',
+                        default=getattr(exp3_config, 'EXP3_RANKS_TO_TEST', [1, 2, 4, 8, 16, 32, 64, 128]),
+                        help='List of ranks to test (e.g., --ranks 1 2 4 8 16 32)')
+    parser.add_argument('--max-rank', type=int, default=None,
+                        help='Maximum rank to test (will filter provided ranks)')
+
+    # Output arguments
+    parser.add_argument('--results-dir', type=str,
+                        default=getattr(exp3_config, 'EXP3_RESULTS_DIR', 'results/experiment3'),
+                        help='Directory to save results')
+    parser.add_argument('--run_name', type=str, default=None,
+                        help='Optional run name to append to results directory')
+
+    # Evaluation arguments
+    parser.add_argument('--verify-bounds', action='store_true',
+                        default=getattr(exp3_config, 'VERIFY_POINTWISE_ERROR_BOUND', True),
+                        help='Verify pointwise error bounds')
+    parser.add_argument('--num-samples', type=int,
+                        default=getattr(exp3_config, 'NUM_POINTWISE_ERROR_SAMPLES', 1000),
+                        help='Number of samples for pointwise error verification')
+
+    # Device argument
+    parser.add_argument('--device', type=str, default=None,
+                        choices=['cpu', 'cuda', 'auto'],
+                        help='Device to use (cpu, cuda, or auto)')
+
+    # Control arguments
+    parser.add_argument('--skip-plots', action='store_true',
+                        help='Skip generating plots')
+    parser.add_argument('--skip-evaluation', action='store_true',
+                        help='Only do SVD analysis, skip evaluation')
+
+    return parser.parse_args()
+
+
+def update_config_from_args(args):
+    """Update configuration based on command line arguments"""
+    logger = logging.getLogger('experiment3')
+
+    # Update paths
+    if args.model_path:
+        exp3_config.PRETRAINED_W_STAR_MODEL_PATH = args.model_path
+        logger.info(f"Using model path from command line: {args.model_path}")
+
+    if args.model_key:
+        exp3_config.PRETRAINED_W_STAR_MODEL_KEY = args.model_key
+
+    if args.dataset:
+        exp3_config.DATASET_NAME = args.dataset
+
+    # Update ranks
+    if args.ranks:
+        exp3_config.EXP3_RANKS_TO_TEST = sorted(list(set(args.ranks)))
+        logger.info(f"Using ranks from command line: {exp3_config.EXP3_RANKS_TO_TEST}")
+
+    # Update results directory
+    if args.run_name:
+        base_dir = args.results_dir
+        exp3_config.EXP3_RESULTS_DIR = os.path.join(base_dir, args.run_name)
+        logger.info(f"Using results directory: {exp3_config.EXP3_RESULTS_DIR}")
+    else:
+        exp3_config.EXP3_RESULTS_DIR = args.results_dir
+
+    # Update verification settings
+    exp3_config.VERIFY_POINTWISE_ERROR_BOUND = args.verify_bounds
+    exp3_config.NUM_POINTWISE_ERROR_SAMPLES = args.num_samples
+
+    # Update device
+    if args.device:
+        if args.device == 'auto':
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            device = torch.device(args.device)
+        exp3_config.DEVICE = device
+        logger.info(f"Using device: {device}")
+
+    return args
+
+
 def main():
-    """Fixed main function with comprehensive error handling"""
-    if not exp3_config.EXP3_ENABLED:
-        print("Experiment 3 is disabled in experiment3/config.py. Skipping.")
+    """Fixed main function with command line argument support"""
+    # Parse command line arguments first
+    args = parse_arguments()
+
+    if not getattr(exp3_config, 'EXP3_ENABLED', True):
+        print("Experiment 3 is disabled in experiment3/config.py. Use --help for options.")
         return
 
     logger = setup_logging_exp3(exp3_config.EXP3_RESULTS_DIR)
+
+    # Update config based on command line arguments
+    args = update_config_from_args(args)
+
     logger.info("Starting Experiment 3: Low-Rank Approximation Analysis")
+    logger.info(f"Command line arguments: {vars(args)}")
     logger.info(f"Using device: {exp3_config.DEVICE}")
-    logger.info(
-        f"Loading W* from: {exp3_config.PRETRAINED_W_STAR_MODEL_PATH} (type: {exp3_config.PRETRAINED_W_STAR_MODEL_KEY})")
+    logger.info(f"Model path: {exp3_config.PRETRAINED_W_STAR_MODEL_PATH}")
+    logger.info(f"Model key: {exp3_config.PRETRAINED_W_STAR_MODEL_KEY}")
+    logger.info(f"Dataset: {exp3_config.DATASET_NAME}")
+    logger.info(f"Ranks to test: {exp3_config.EXP3_RANKS_TO_TEST}")
+
+    # Validate required arguments
+    if not exp3_config.PRETRAINED_W_STAR_MODEL_PATH:
+        logger.error("No model path specified. Use --model_path or set in config.")
+        return
 
     # Determine dataset and data loading strategy (Fixed)
     dataset_name, use_ir_datasets = determine_dataset_info(exp3_config.PRETRAINED_W_STAR_MODEL_PATH)
@@ -626,9 +740,16 @@ def main():
 
     try:
         U_cpu, S_singular_values_cpu, Vh_cpu = perform_svd(W_star_cpu)
-        plot_singular_values(S_singular_values_cpu, exp3_config.EXP3_RESULTS_DIR)
+        if not args.skip_plots:
+            plot_singular_values(S_singular_values_cpu, exp3_config.EXP3_RESULTS_DIR)
     except Exception as e:
         logger.error(f"Failed to perform SVD: {e}. Exiting Experiment 3.")
+        return
+
+    # If only SVD analysis requested, stop here
+    if args.skip_evaluation:
+        logger.info("Skipping evaluation as requested (--skip_evaluation)")
+        logger.info("SVD analysis completed.")
         return
 
     # --- 2. Load Data for Evaluation ---
@@ -663,6 +784,11 @@ def main():
     max_possible_rank_svd = len(S_singular_values_cpu)
     actual_embedding_dim = W_star_cpu.shape[0]  # Use actual matrix dimensions
     max_rank_practical = min(max_possible_rank_svd, actual_embedding_dim)
+
+    # Apply max_rank filter if specified
+    if args.max_rank:
+        max_rank_practical = min(max_rank_practical, args.max_rank)
+        logger.info(f"Applied max_rank filter: {args.max_rank}")
 
     logger.info(f"Matrix dimensions: {W_star_cpu.shape}")
     logger.info(f"SVD rank limit: {max_possible_rank_svd}")
@@ -739,14 +865,17 @@ def main():
     if evaluated_ranks:
         logger.info(f"Successfully evaluated {len(evaluated_ranks)} ranks")
 
-        try:
-            plot_performance_vs_rank(evaluated_ranks, scores_list, exp3_config.EXP3_RESULTS_DIR,
-                                     metric_name=primary_metric.upper())
-            plot_performance_vs_sigma_r_plus_1(evaluated_ranks, scores_list, S_singular_values_cpu,
-                                               exp3_config.EXP3_RESULTS_DIR,
-                                               metric_name=primary_metric.upper())
-        except Exception as plot_error:
-            logger.error(f"Plotting failed: {plot_error}")
+        if not args.skip_plots:
+            try:
+                plot_performance_vs_rank(evaluated_ranks, scores_list, exp3_config.EXP3_RESULTS_DIR,
+                                         metric_name=primary_metric.upper())
+                plot_performance_vs_sigma_r_plus_1(evaluated_ranks, scores_list, S_singular_values_cpu,
+                                                   exp3_config.EXP3_RESULTS_DIR,
+                                                   metric_name=primary_metric.upper())
+            except Exception as plot_error:
+                logger.error(f"Plotting failed: {plot_error}")
+        else:
+            logger.info("Skipping plots as requested (--skip_plots)")
 
         # Save results summary
         try:
@@ -759,7 +888,8 @@ def main():
                     "use_ir_datasets": use_ir_datasets,
                     "primary_metric": primary_metric,
                     "W_star_shape": list(W_star_cpu.shape),
-                    "max_rank_practical": max_rank_practical
+                    "max_rank_practical": max_rank_practical,
+                    "command_line_args": vars(args)
                 },
                 "ranks_evaluated": evaluated_ranks,
                 "scores": scores_list,
