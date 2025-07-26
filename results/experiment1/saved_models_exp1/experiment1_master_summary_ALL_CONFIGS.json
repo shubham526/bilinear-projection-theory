@@ -1,0 +1,217 @@
+{
+    "default_wdp_training": [
+        {
+            "seed": 42,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 5,
+                "wdp_train_samples": 50000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "Default WDP training settings."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 123,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 5,
+                "wdp_train_samples": 50000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "Default WDP training settings."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 789,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 5,
+                "wdp_train_samples": 50000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "Default WDP training settings."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        }
+    ],
+    "more_epochs_wdp": [
+        {
+            "seed": 42,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 15,
+                "wdp_train_samples": 50000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "WDP training with more epochs."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 123,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 15,
+                "wdp_train_samples": 50000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "WDP training with more epochs."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 789,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 15,
+                "wdp_train_samples": 50000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "WDP training with more epochs."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        }
+    ],
+    "more_samples_wdp": [
+        {
+            "seed": 42,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 5,
+                "wdp_train_samples": 100000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "WDP training with more samples."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 123,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 5,
+                "wdp_train_samples": 100000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "WDP training with more samples."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 789,
+            "config_params_used": {
+                "train_wdp_flag": true,
+                "wdp_epochs": 5,
+                "wdp_train_samples": 100000,
+                "wdp_learning_rate": 0.001,
+                "wdp_batch_size": 128,
+                "wdp_margin": 1.0,
+                "description": "WDP training with more samples."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        }
+    ],
+    "default_univar_wdp_no_train": [
+        {
+            "seed": 42,
+            "config_params_used": {
+                "train_wdp_flag": false,
+                "wdp_epochs": 0,
+                "wdp_train_samples": 0,
+                "description": "Uses a default (untrained, weights=1) WDP for generalization tests."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 123,
+            "config_params_used": {
+                "train_wdp_flag": false,
+                "wdp_epochs": 0,
+                "wdp_train_samples": 0,
+                "description": "Uses a default (untrained, weights=1) WDP for generalization tests."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        },
+        {
+            "seed": 789,
+            "config_params_used": {
+                "train_wdp_flag": false,
+                "wdp_epochs": 0,
+                "wdp_train_samples": 0,
+                "description": "Uses a default (untrained, weights=1) WDP for generalization tests."
+            },
+            "bilinear_success_rate": 100.0,
+            "wdp_generalization_success_rate": 0.0,
+            "wdp_confidence_interval": [
+                2.168404344971009e-17,
+                0.38267584855551234
+            ]
+        }
+    ]
+}

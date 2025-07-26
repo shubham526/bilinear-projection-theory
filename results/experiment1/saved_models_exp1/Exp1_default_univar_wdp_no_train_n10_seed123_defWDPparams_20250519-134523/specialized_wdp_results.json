@@ -1,0 +1,35 @@
+[
+  {
+    "training_I0": [
+      0,
+      1
+    ],
+    "success_on_training_I0": 0.0,
+    "success_on_other_I0s": {
+      "(0, 2)": 0.0,
+      "(0, 3)": 0.0
+    }
+  },
+  {
+    "training_I0": [
+      0,
+      2
+    ],
+    "success_on_training_I0": 0.0,
+    "success_on_other_I0s": {
+      "(0, 1)": 0.0,
+      "(0, 3)": 0.0
+    }
+  },
+  {
+    "training_I0": [
+      0,
+      3
+    ],
+    "success_on_training_I0": 100.0,
+    "success_on_other_I0s": {
+      "(0, 1)": 0.0,
+      "(0, 2)": 0.0
+    }
+  }
+]

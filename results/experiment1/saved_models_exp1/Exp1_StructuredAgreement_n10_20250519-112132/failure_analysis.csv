@@ -1,0 +1,5 @@
+pattern_name,I0,success_rate,description
+"Adjacent features (0,1)","(0, 1)",0.0,Requires weighting first two dimensions highly
+"Skip one feature (0,2)","(0, 2)",0.0,"Requires weighting dimensions 0 and 2, but not 1"
+"End features (0,3)","(0, 3)",0.0,Requires weighting first and last relevant dimensions
+Standard first two,"(0, 1)",0.0,Standard test case for first two dimensions
